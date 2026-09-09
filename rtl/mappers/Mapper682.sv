@@ -115,6 +115,7 @@ reg [13:0] last_ppu_addr;
 reg [7:0]  ext_data;
 reg        override_tile;
 reg [7:0]  last_chr_dout;
+reg        enable_d;
 
 // -------------------------------------------------------------------------
 // 8KB FPGA-RAM (dual-port)
@@ -184,8 +185,16 @@ wire [2:0] chr_md = (chr_mode_reg[2:0] >= 3'd4) ? 3'd4 : chr_mode_reg[2:0];
 
 // Boot banking (SotN / web mapper682.js): mode 2 = 16K+8K+8K with
 // $8000=bank0, $C000=8K bank 2, $E000=last 8K PRG. Hardware doc resets
-// to mode 0/bank0, which leaves RESET vectors in the first 32KB and hangs
-// large Rainbow ROMs that expect the fixed last bank at $E000.
+// to mode 0/bank0 (BrokeStudio boiler), but SotN puts RESET in the last
+// 8K and its $FFE0 stub switches $411E then JMPs into that bank.
+//
+// IMPORTANT: NES.sv forces mapper_flags=0 while downloading, and cart
+// enable for this mapper is low until the header is committed. Latched
+// defaults that depend on flags[10:8] therefore see size=0 and compute
+// last_8k=(2<<0)-1=1 — so $E000 maps to bank 1, not the real last bank,
+// and SotN (and any last-bank vector ROM) hangs after the previous
+// "match web loadROM" fix. Mirror MMC3: power-on last bank = 8'hFF and
+// let cart.sv prg_mask truncate to the actual last 8K.
 wire [8:0] prg_last_8k_w = (9'd2 << flags[10:8]) - 9'd1;
 wire [7:0] prg_last_8k   = prg_last_8k_w[7:0];
 
@@ -254,13 +263,15 @@ integer i;
 always @(posedge clk) begin
 	ram_wrenA <= 1'b0;
 
+	enable_d <= enable;
+
 	if (!enable) begin
 		// Match web loadROM(): prg16=0, prg8c=2, prg8e=last, chrLo=[0..7]
 		prg_mode_reg <= 8'h02; // 16K + 8K + 8K
 		for (i = 0; i < 8; i = i + 1) begin prg_hi[i] <= 8'h00; prg_lo[i] <= 8'h00; end
 		prg_lo[0] <= 8'h00;           // $8000-$BFFF: 16K bank 0
 		prg_lo[4] <= 8'h02;           // $C000-$DFFF: 8K bank 2
-		prg_lo[6] <= prg_last_8k;     // $E000-$FFFF: last 8K (vectors)
+		prg_lo[6] <= 8'hFF;           // $E000-$FFFF: last 8K via prg_mask (not flags-at-!enable)
 		for (i = 0; i < 2; i = i + 1) begin ram_hi[i] <= 8'h00; ram_lo[i] <= 8'h00; end // $4106/$4116: PRG-ROM room bank 0
 		fpga_bank <= 1'b0;
 		chr_mode_reg <= 8'h03; // 1K CHR banks (web always maps 1K)
@@ -344,6 +355,10 @@ always @(posedge clk) begin
 		chr_hi[12] <= {4'b0, SS_MAP8[63:60]};
 		chr_hi[13] <= 8'h0; chr_hi[14] <= 8'h0; chr_hi[15] <= 8'h0;
 	end else begin
+		// First cycle after enable: flags are valid (download finished).
+		// Snap exact last 8K (8'hFF already works via mask; this matches $411E).
+		if (!enable_d)
+			prg_lo[6] <= prg_last_8k;
 		if (ce) begin
 			parity <= ~parity;
 			jitter <= jitter + 1'b1;
