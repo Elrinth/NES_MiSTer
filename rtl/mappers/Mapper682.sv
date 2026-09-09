@@ -115,7 +115,6 @@ reg [13:0] last_ppu_addr;
 reg [7:0]  ext_data;
 reg        override_tile;
 reg [7:0]  last_chr_dout;
-reg        enable_d;
 
 // -------------------------------------------------------------------------
 // 8KB FPGA-RAM (dual-port)
@@ -183,20 +182,10 @@ assign Savestate_MAPRAMReadData = enable ? ram_qB : 8'h00;
 wire [2:0] prg_md = (prg_mode_reg[2:0] >= 3'd4) ? 3'd4 : prg_mode_reg[2:0];
 wire [2:0] chr_md = (chr_mode_reg[2:0] >= 3'd4) ? 3'd4 : chr_mode_reg[2:0];
 
-// Boot banking (SotN / web mapper682.js): mode 2 = 16K+8K+8K with
-// $8000=bank0, $C000=8K bank 2, $E000=last 8K PRG. Hardware doc resets
-// to mode 0/bank0 (BrokeStudio boiler), but SotN puts RESET in the last
-// 8K and its $FFE0 stub switches $411E then JMPs into that bank.
-//
-// IMPORTANT: NES.sv forces mapper_flags=0 while downloading, and cart
-// enable for this mapper is low until the header is committed. Latched
-// defaults that depend on flags[10:8] therefore see size=0 and compute
-// last_8k=(2<<0)-1=1 — so $E000 maps to bank 1, not the real last bank,
-// and SotN (and any last-bank vector ROM) hangs after the previous
-// "match web loadROM" fix. Mirror MMC3: power-on last bank = 8'hFF and
-// let cart.sv prg_mask truncate to the actual last 8K.
-wire [8:0] prg_last_8k_w = (9'd2 << flags[10:8]) - 9'd1;
-wire [7:0] prg_last_8k   = prg_last_8k_w[7:0];
+// Power-up/reset defaults follow BrokeStudio mapper-doc (NOT web SotN
+// loadROM). Official rnbw-mapper-test ROMs put RESET at the end of the
+// first 32KB ($FCDD); mode 0 + bank 0 maps that correctly. Web/SotN
+// last-bank boot is a game-image concern, not FPGA power-on.
 
 reg [2:0] prg_ridx;
 reg [2:0] prg_bsh; // 5=32K,4=16K,3=8K,2=4K
@@ -263,29 +252,22 @@ integer i;
 always @(posedge clk) begin
 	ram_wrenA <= 1'b0;
 
-	enable_d <= enable;
-
 	if (!enable) begin
-		// Match web loadROM(): prg16=0, prg8c=2, prg8e=last, chrLo=[0..7]
-		prg_mode_reg <= 8'h02; // 16K + 8K + 8K
-		for (i = 0; i < 8; i = i + 1) begin prg_hi[i] <= 8'h00; prg_lo[i] <= 8'h00; end
-		prg_lo[0] <= 8'h00;           // $8000-$BFFF: 16K bank 0
-		prg_lo[4] <= 8'h02;           // $C000-$DFFF: 8K bank 2
-		prg_lo[6] <= 8'hFF;           // $E000-$FFFF: last 8K via prg_mask (not flags-at-!enable)
-		for (i = 0; i < 2; i = i + 1) begin ram_hi[i] <= 8'h00; ram_lo[i] <= 8'h00; end // $4106/$4116: PRG-ROM room bank 0
+		// BrokeStudio mapper-doc "Power-up and reset register status"
+		prg_mode_reg <= 8'h00; // $4100: PRG mode 0 (32K) + RAM mode 0 (8K)
+		for (i = 0; i < 8; i = i + 1) begin prg_hi[i] <= 8'h00; prg_lo[i] <= 8'h00; end // $4108/$4118 bank 0
+		for (i = 0; i < 2; i = i + 1) begin ram_hi[i] <= 8'h00; ram_lo[i] <= 8'h00; end
 		fpga_bank <= 1'b0;
-		chr_mode_reg <= 8'h03; // 1K CHR banks (web always maps 1K)
+		chr_mode_reg <= 8'h00; // $4120: CHR mode 0 (8K), CHR-ROM, no split/sprite-ext
 		bg_ext_upper <= 5'h00;
 		fill_tile <= 8'h00; fill_attr <= 2'h0;
-		nt_bank[0] <= 8'h00; nt_bank[1] <= 8'h00; nt_bank[2] <= 8'h01; nt_bank[3] <= 8'h01;
-		nt_ctrl[0] <= 8'h00; nt_ctrl[1] <= 8'h00; nt_ctrl[2] <= 8'h00; nt_ctrl[3] <= 8'h00;
-		for (i = 0; i < 16; i = i + 1) begin chr_hi[i] <= 8'h00; chr_lo[i] <= 8'h00; end
-		chr_lo[0] <= 8'd0; chr_lo[1] <= 8'd1; chr_lo[2] <= 8'd2; chr_lo[3] <= 8'd3;
-		chr_lo[4] <= 8'd4; chr_lo[5] <= 8'd5; chr_lo[6] <= 8'd6; chr_lo[7] <= 8'd7;
-		sl_latch <= 8'h00; sl_irq_en <= 1'b0; sl_irq_pending <= 1'b0; sl_offset <= 8'h87;
+		nt_bank[0] <= 8'h00; nt_bank[1] <= 8'h00; nt_bank[2] <= 8'h01; nt_bank[3] <= 8'h01; // $4126-$4129
+		nt_ctrl[0] <= 8'h00; nt_ctrl[1] <= 8'h00; nt_ctrl[2] <= 8'h00; nt_ctrl[3] <= 8'h00; // CIRAM
+		for (i = 0; i < 16; i = i + 1) begin chr_hi[i] <= 8'h00; chr_lo[i] <= 8'h00; end // $4130/$4140 bank 0
+		sl_latch <= 8'h00; sl_irq_en <= 1'b0; sl_irq_pending <= 1'b0; sl_offset <= 8'h87; // $4152/$4153
 		parity <= 1'b0; jitter <= 8'h00;
 		cpu_irq_latch <= 16'h0; cpu_irq_counter <= 16'h0;
-		cpu_irq_en <= 1'b0; cpu_irq_en_after <= 1'b0; cpu_irq_pending <= 1'b0;
+		cpu_irq_en <= 1'b0; cpu_irq_en_after <= 1'b0; cpu_irq_pending <= 1'b0; // $415A
 		fpga_auto_addr <= 13'h0; fpga_auto_inc <= 8'h0;
 		ppu_in_frame <= 1'b0; ppu_in_hblank <= 1'b0; ppu_scanline <= 8'h0; ppu_read_ctr <= 8'h0;
 		nt_same_ctr <= 2'h0; ppu_idle <= 2'h0; last_ppu_addr <= 14'h0;
@@ -355,10 +337,6 @@ always @(posedge clk) begin
 		chr_hi[12] <= {4'b0, SS_MAP8[63:60]};
 		chr_hi[13] <= 8'h0; chr_hi[14] <= 8'h0; chr_hi[15] <= 8'h0;
 	end else begin
-		// First cycle after enable: flags are valid (download finished).
-		// Snap exact last 8K (8'hFF already works via mask; this matches $411E).
-		if (!enable_d)
-			prg_lo[6] <= prg_last_8k;
 		if (ce) begin
 			parity <= ~parity;
 			jitter <= jitter + 1'b1;
