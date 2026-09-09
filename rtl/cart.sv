@@ -1232,6 +1232,55 @@ Mapper99 map99(
 );
 
 //*****************************************************************************//
+// Name   : Broke Studio Rainbow (RNBW)                                        //
+// Mappers: 682                                                                //
+// Status : Preliminary — needs hardware/Quartus validation                    //
+// Notes  : No Wi-Fi/ESP. Expansion audio, window split, sprite-ext, OAM code, //
+//          vector redirect, flash deferred. FPGA-RAM + banking + IRQs present.//
+// Games  : Rainbow homebrew                                                   //
+//*****************************************************************************//
+Mapper682 map682(
+	.clk        (clk),
+	.ce         (ce),
+	.enable     (me[682]),
+	.flags      (flags),
+	.prg_ain    (prg_ain),
+	.prg_aout_b (prg_addr_b),
+	.prg_read   (prg_read),
+	.prg_write  (prg_write),
+	.prg_din    (prg_din),
+	.prg_dout_b (prg_dout_b),
+	.prg_allow_b(prg_allow_b),
+	.chr_ain    (chr_ain),
+	.chr_aout_b (chr_addr_b),
+	.chr_read   (chr_read),
+	.chr_dout_b (chr_dout_b),
+	.chr_allow_b(chr_allow_b),
+	.vram_a10_b (vram_a10_b),
+	.vram_ce_b  (vram_ce_b),
+	.irq_b      (irq_b),
+	.flags_out_b(flags_out_b),
+	.audio_in   (audio_in),
+	.audio_b    (audio_out_b),
+	.chr_ain_o  (chr_ain_orig),
+	.chr_write  (chr_write),
+	.chr_din    (chr_din),
+	.paused     (paused),
+	.SaveStateBus_Din  (SaveStateBus_Din),
+	.SaveStateBus_Adr  (SaveStateBus_Adr),
+	.SaveStateBus_wren (SaveStateBus_wren),
+	.SaveStateBus_rst  (SaveStateBus_rst),
+	.SaveStateBus_load (SaveStateBus_load),
+	.SaveStateBus_Dout (SaveStateBus_wired_or[41]),
+	.Savestate_MAPRAMactive   (Savestate_MAPRAMactive),
+	.Savestate_MAPRAMAddr     (Savestate_MAPRAMAddr),
+	.Savestate_MAPRAMRdEn     (Savestate_MAPRAMRdEn),
+	.Savestate_MAPRAMWrEn     (Savestate_MAPRAMWrEn),
+	.Savestate_MAPRAMWriteData(Savestate_MAPRAMWriteData),
+	.Savestate_MAPRAMReadData (SaveStateRAM_wired_or[4])
+);
+
+//*****************************************************************************//
 // Name   : Magic Dragon                                                       //
 // Mappers: 107                                                                //
 // Status : Needs Evaluation                                                   //
@@ -2572,7 +2621,7 @@ always @* begin
 end
 
 // savestates
-localparam SAVESTATE_MODULES    = 41;
+localparam SAVESTATE_MODULES    = 42;
 wire [63:0] SaveStateBus_wired_or[0:SAVESTATE_MODULES-1];
 
 assign SaveStateBus_Dout  = SaveStateBus_wired_or[ 0] | SaveStateBus_wired_or[ 1] | SaveStateBus_wired_or[ 2] | SaveStateBus_wired_or[ 3] | SaveStateBus_wired_or[ 4] |
@@ -2583,10 +2632,11 @@ assign SaveStateBus_Dout  = SaveStateBus_wired_or[ 0] | SaveStateBus_wired_or[ 1
 									  SaveStateBus_wired_or[25] | SaveStateBus_wired_or[26] | SaveStateBus_wired_or[27] | SaveStateBus_wired_or[28] | SaveStateBus_wired_or[29] |
 									  SaveStateBus_wired_or[30] | SaveStateBus_wired_or[31] | SaveStateBus_wired_or[32] | SaveStateBus_wired_or[33] | SaveStateBus_wired_or[34] |
 									  SaveStateBus_wired_or[35] | SaveStateBus_wired_or[36] | SaveStateBus_wired_or[37] | SaveStateBus_wired_or[38] | SaveStateBus_wired_or[39] |
-									  SaveStateBus_wired_or[40];
+									  SaveStateBus_wired_or[40] |
+									  SaveStateBus_wired_or[41];
 
-localparam SAVESTATERAM_MODULES    = 4;
+localparam SAVESTATERAM_MODULES    = 5;
 wire [7:0] SaveStateRAM_wired_or[0:SAVESTATERAM_MODULES-1];
-assign Savestate_MAPRAMReadData = SaveStateRAM_wired_or[0] | SaveStateRAM_wired_or[1] | SaveStateRAM_wired_or[2] | SaveStateRAM_wired_or[3];
+assign Savestate_MAPRAMReadData = SaveStateRAM_wired_or[0] | SaveStateRAM_wired_or[1] | SaveStateRAM_wired_or[2] | SaveStateRAM_wired_or[3] | SaveStateRAM_wired_or[4];
 
 endmodule
