@@ -182,6 +182,13 @@ assign Savestate_MAPRAMReadData = enable ? ram_qB : 8'h00;
 wire [2:0] prg_md = (prg_mode_reg[2:0] >= 3'd4) ? 3'd4 : prg_mode_reg[2:0];
 wire [2:0] chr_md = (chr_mode_reg[2:0] >= 3'd4) ? 3'd4 : chr_mode_reg[2:0];
 
+// Boot banking (SotN / web mapper682.js): mode 2 = 16K+8K+8K with
+// $8000=bank0, $C000=8K bank 2, $E000=last 8K PRG. Hardware doc resets
+// to mode 0/bank0, which leaves RESET vectors in the first 32KB and hangs
+// large Rainbow ROMs that expect the fixed last bank at $E000.
+wire [8:0] prg_last_8k_w = (9'd2 << flags[10:8]) - 9'd1;
+wire [7:0] prg_last_8k   = prg_last_8k_w[7:0];
+
 reg [2:0] prg_ridx;
 reg [2:0] prg_bsh; // 5=32K,4=16K,3=8K,2=4K
 always @* begin
@@ -248,16 +255,22 @@ always @(posedge clk) begin
 	ram_wrenA <= 1'b0;
 
 	if (!enable) begin
-		prg_mode_reg <= 8'h00;
+		// Match web loadROM(): prg16=0, prg8c=2, prg8e=last, chrLo=[0..7]
+		prg_mode_reg <= 8'h02; // 16K + 8K + 8K
 		for (i = 0; i < 8; i = i + 1) begin prg_hi[i] <= 8'h00; prg_lo[i] <= 8'h00; end
-		for (i = 0; i < 2; i = i + 1) begin ram_hi[i] <= 8'h00; ram_lo[i] <= 8'h00; end
+		prg_lo[0] <= 8'h00;           // $8000-$BFFF: 16K bank 0
+		prg_lo[4] <= 8'h02;           // $C000-$DFFF: 8K bank 2
+		prg_lo[6] <= prg_last_8k;     // $E000-$FFFF: last 8K (vectors)
+		for (i = 0; i < 2; i = i + 1) begin ram_hi[i] <= 8'h00; ram_lo[i] <= 8'h00; end // $4106/$4116: PRG-ROM room bank 0
 		fpga_bank <= 1'b0;
-		chr_mode_reg <= 8'h00;
+		chr_mode_reg <= 8'h03; // 1K CHR banks (web always maps 1K)
 		bg_ext_upper <= 5'h00;
 		fill_tile <= 8'h00; fill_attr <= 2'h0;
 		nt_bank[0] <= 8'h00; nt_bank[1] <= 8'h00; nt_bank[2] <= 8'h01; nt_bank[3] <= 8'h01;
 		nt_ctrl[0] <= 8'h00; nt_ctrl[1] <= 8'h00; nt_ctrl[2] <= 8'h00; nt_ctrl[3] <= 8'h00;
 		for (i = 0; i < 16; i = i + 1) begin chr_hi[i] <= 8'h00; chr_lo[i] <= 8'h00; end
+		chr_lo[0] <= 8'd0; chr_lo[1] <= 8'd1; chr_lo[2] <= 8'd2; chr_lo[3] <= 8'd3;
+		chr_lo[4] <= 8'd4; chr_lo[5] <= 8'd5; chr_lo[6] <= 8'd6; chr_lo[7] <= 8'd7;
 		sl_latch <= 8'h00; sl_irq_en <= 1'b0; sl_irq_pending <= 1'b0; sl_offset <= 8'h87;
 		parity <= 1'b0; jitter <= 8'h00;
 		cpu_irq_latch <= 16'h0; cpu_irq_counter <= 16'h0;
