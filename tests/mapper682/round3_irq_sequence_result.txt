@@ -1,0 +1,2 @@
+PASS original CPU Cycle IRQ result=5; IRQ disabled; subsequent scanline handlers and mainline run
+- tests/mapper682/tb_mapper682_irq_sequence.sv:141: Verilog $finish

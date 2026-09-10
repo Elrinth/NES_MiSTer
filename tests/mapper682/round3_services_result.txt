@@ -1,0 +1,4 @@
+PASS executable OAM clear: 64 Y coordinates, X=$FF
+PASS executable extended OAM: all 32 source pages and sprite limits
+PASS actual T65 IRQ/BRK and NMI vector redirection
+- tests/mapper682/tb_mapper682_services.sv:190: Verilog $finish

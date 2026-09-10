@@ -1,0 +1,1 @@
+Original mapper: 32 tiles from ONE physical scanline advanced its scanline counter to 63

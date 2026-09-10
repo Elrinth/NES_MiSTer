@@ -663,7 +663,7 @@ wire nsf = (loader_flags[7:0] == 8'h1F);
 wire piano = (mapper_flags[30]);
 wire [3:0] prg_nvram = mapper_flags[34:31];
 wire loader_busy, loader_done, loader_fail;
-wire [9:0] prg_mask, chr_mask;
+wire [11:0] prg_mask, chr_mask;
 wire [1:0] clearval = status[66:65];
 wire [7:0] cleardata = (clearval == 3) ? random_byte : (clearval == 2 ? 8'hFF : 8'h00);
 
@@ -865,7 +865,7 @@ NES nes (
 );
 
 wire [24:0] cpu_addr;
-wire [21:0] ppu_addr;
+wire [24:0] ppu_addr;
 wire        cpu_read, cpu_write, ppu_read, ppu_write;
 wire  [7:0] cpu_dout, cpu_din, ppu_dout, ppu_din;
 
@@ -945,7 +945,7 @@ sdram sdram
 	.init       ( !clock_locked   ),
 
 	// cpu/chipset interface
-	.ch0_addr   (  (downloading | loader_busy) ? loader_addr_mem       : {3'b0, ppu_addr}  ),
+	.ch0_addr   (  (downloading | loader_busy) ? loader_addr_mem       : ppu_addr  ),
 	.ch0_wr     (                                loader_write_mem      | ppu_write ),
 	.ch0_din    (  (downloading | loader_busy) ? loader_write_data_mem : ppu_dout  ),
 	.ch0_rd     ( ~(downloading | loader_busy)                         & ppu_read  ),
@@ -1328,8 +1328,8 @@ module GameLoader
 	output [7:0]  mem_data,
 	output        mem_write,
 	output [63:0] mapper_flags,
-	output reg [9:0]  prg_mask,
-	output reg [9:0]  chr_mask,
+	output reg [11:0] prg_mask,
+	output reg [11:0] chr_mask,
 	output reg    busy,
 	output reg    done,
 	output reg    error,
@@ -1366,17 +1366,15 @@ wire is_nes20_chr = (is_nes20 && (ines[9][7:4] == 4'hF));
 wire [11:0] prg_pages = is_nes20 ? {ines[9][3:0], ines[4]} : {4'b0, ines[4]};
 wire [11:0] chr_pages = is_nes20 ? {ines[9][7:4], ines[5]} : {4'b0, ines[5]};
 
-// Byte sizes; [24:0] matches bytes_left / mem_addr. NOTE: loader maps CHR at
-// SDRAM 0x200000, so PRG+CHR together are hard-capped ~2MB PRG + ~1–2MB CHR in
-// the current address map. Correct header parse still matters for 4MB PRG tests
-// (and CHR-RAM variants); full 4+4MB simultaneous ROM needs a layout change.
+// Rainbow ROMs use disjoint 8MiB apertures at $0800000 and $1000000.
+// All other mappers retain the original loader layout.
 reg [24:0] prg_size2, chr_size2, chr_ram_size;
 
-function [9:0] mask;
-	input [10:0] size;
+function [11:0] mask;
+	input [12:0] size;
 	integer i;
 	begin
-		for (i=0;i<10;i=i+1) mask[i] = ( size > (11'd1 << i) );
+		for (i=0;i<12;i=i+1) mask[i] = ( size > (13'd1 << i) );
 	end
 endfunction
 
@@ -1385,13 +1383,13 @@ always @(posedge clk) begin
 	// Exponent form (ines[9] low == 0xF): ines[4][1:0] multiplier MM*2+1, [7:2] exp
 	// Otherwise: prg_pages * 16KB (NES 2.0 includes ines[9] MSB nibble)
 	prg_size2 <= is_nes20_prg ? ({19'b0, ines[4][1:0], 1'b1} << ines[4][7:2]) : {prg_pages, 14'b0};
-	// Saturate mask input for >2MB so bit20 stays enabled (cart masks [20:0])
-	prg_mask <= mask(|prg_size2[24:22] ? 11'h7FF : prg_size2[21:11]);
+	// Twelve 2KiB bank bits cover an 8MiB Rainbow image.
+	prg_mask <= mask(|prg_size2[24] ? 13'h1FFF : prg_size2[23:11]);
 
 	// CHR
 	chr_size2 <= is_nes20_chr ? ({19'b0, ines[5][1:0], 1'b1} << ines[5][7:2]) : {chr_pages, 13'b0};
 	chr_ram_size <= is_nes20 ? (25'd64 << chrram) : 25'h2000;
-	chr_mask <= mask(|chr_size2 ? (|chr_size2[24:22] ? 11'h7FF : chr_size2[21:11]) : chr_ram_size[21:11]);
+	chr_mask <= mask(|chr_size2 ? (chr_size2[24] ? 13'h1FFF : chr_size2[23:11]) : chr_ram_size[23:11]);
 end
 
 wire [2:0] prg_size = prg_pages <= 1  ? 3'd0 :		// 16KB
@@ -1425,13 +1423,14 @@ wire [7:0] ines2mapper = {is_nes20 ? ines[8] : 8'h00};
 wire [3:0] prgram = {is_nes20 ? ines[10][3:0] : 4'h0};
 wire [3:0] prg_nvram = (is_nes20 ? ines[10][7:4] : 4'h0);
 wire       piano = is_nes20 && (ines[15][5:0] == 6'h19);
+wire       mapper682 = ({ines2mapper[1:0], mapper} == 10'd682);
 wire       mapper99 = ({ines2mapper[1:0], mapper} == 10'd99);
 wire [3:0] vs_hardware_type = (is_nes20 && (ines[7][1:0] == 2'd1)) ? ines[13][7:4] : 4'd0;
 wire       mapper99_dual = mapper99 && (vs_hardware_type == 4'd5);
 wire       mapper99_raid = mapper99 && (vs_hardware_type == 4'd6);
 wire has_saves = ines[6][1];
 
-assign mapper_flags[63:60] = 4'd0;
+assign mapper_flags[63:60] = mapper682 ? chrram : 4'd0;
 assign mapper_flags[59:53] = is_nes20 ? ines[15][6:0] : 7'd0; // NES 2.0 default expansion device
 assign mapper_flags[52:49] = vs_hardware_type; // Vs. hardware/protection type
 assign mapper_flags[48:45] = (is_nes20 && (ines[7][1:0] == 2'd1)) ? ines[13][3:0] : 4'd0; // Vs. PPU type
@@ -1497,7 +1496,7 @@ always @(posedge clk) begin
 					// Check the 'NES' header. Also, we don't support trainers.
 					busy <= 1;
 					if ((ines[0] == 8'h4E) && (ines[1] == 8'h45) && (ines[2] == 8'h53) && (ines[3] == 8'h1A) && !ines[6][2]) begin
-						mem_addr <= 0;  // Address for PRG
+						mem_addr <= mapper682 ? 25'h0800000 : 25'd0; // Address for PRG
 						state <= S_LOADPRG;
 					//FDS
 					end else if ((ines[0] == 8'h46) && (ines[1] == 8'h44) && (ines[2] == 8'h53) && (ines[3] == 8'h1A)) begin
@@ -1530,7 +1529,7 @@ always @(posedge clk) begin
 				end
 			end else if (state == S_LOADPRG) begin
 				state <= S_LOADCHR;
-				mem_addr <= 25'b0_0010_0000_0000_0000_0000_0000; // Address for CHR
+				mem_addr <= mapper682 ? 25'h1000000 : 25'h0200000; // Address for CHR
 				bytes_left <= chr_size2;
 			end else if (state == S_LOADCHR) begin
 				state <= S_LOADEXTRA;

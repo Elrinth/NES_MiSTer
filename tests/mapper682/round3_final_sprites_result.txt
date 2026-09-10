@@ -1,0 +1,2 @@
+PASS 155 real PPU sprite fetches: skipped OAM entries, normal/extra sprites, 8x8/8x16, ROM/RAM
+- tests/mapper682/tb_mapper682_sprites.sv:98: Verilog $finish

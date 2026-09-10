@@ -1128,7 +1128,7 @@ vrc6sound snd_vrc6 (
 
 endmodule
 
-module vrc6sound(
+module vrc6sound #(parameter RESET_PHASES = 0)(
 	input clk,
 	input ce,
 	input enable,
@@ -1148,6 +1148,7 @@ module vrc6sound(
 	output      [63:0]  SaveStateBus_Dout
 );
 
+import regs_savestates::*;
 wire [15:0] ain=addr_invert ? {addr_in[15:2],addr_in[0],addr_in[1]} :  addr_in; //MAP1A : MAP18
 
 reg mode0, mode1;
@@ -1168,6 +1169,15 @@ always@(posedge clk) begin
 		en0<=0;
 		en1<=0;
 		en2<=0;
+		// Rainbow specifies cleared audio registers at power-up. Keep the
+		// established VRC6 mapper reset behavior unless explicitly requested.
+		if (RESET_PHASES) begin
+			mode0<=0; mode1<=0;
+			vol0<=0; vol1<=0; vol2<=0; duty0<=0; duty1<=0;
+			freq0<=0; freq1<=0; freq2<=0;
+			div0<=0; div1<=0; div2<=0;
+			duty0cnt<=0; duty1cnt<=0; duty2cnt<=0; acc<=0;
+		end
 	end else if (SaveStateBus_load) begin
 		mode0    <= SS_MAP1[    0];
 		mode1    <= SS_MAP1[    1];
@@ -1249,6 +1259,7 @@ assign outSq2=ch1;
 assign outSaw=ch2;
 
 // savestate
+assign SS_MAP1_BACK[    2] = 1'b0;
 assign SS_MAP1_BACK[    0] = mode0;
 assign SS_MAP1_BACK[    1] = mode1;
 assign SS_MAP1_BACK[ 6: 3] = vol0;

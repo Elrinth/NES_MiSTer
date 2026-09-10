@@ -36,15 +36,20 @@ module cart_top (
 	output reg        has_savestate,  // mapper supports savestates
 	output reg        prg_conflict_d0,   // PRG Data is ROM & (prg_din | 1)
 	output reg        has_flashsaves, // Homebrew mapper that saves to PRG-ROM in flash memory
-	input       [9:0] prg_mask,       // PRG Mask for SDRAM translation
-	input       [9:0] chr_mask,       // CHR Mask for SDRAM translation
+	input      [11:0] prg_mask,       // PRG Mask for SDRAM translation
+	input      [11:0] chr_mask,       // CHR Mask for SDRAM translation
 	input             chr_ex,         // chr_addr is from an extra sprite read if high
 	input             chr_read,       // Read from CHR
 	input             chr_write,      // Write to CHR
 	input       [7:0] chr_din,        // PPU Data In
+	input       [8:0] ppu_dot,
+	input       [8:0] ppu_line,
+	input             ppu_rendering,
+    input [5:0] sprite_oam_index, sprite_oam_index_ex,
+    input sprite_size_16,
 	input      [13:0] chr_ain_orig,   // Better known as "PPU Address in"
 	input      [13:0] chr_ain_ex,     // Address for extra sprite fetches
-	output reg [21:0] chr_aout,       // CHR Input / Output Address Lines
+	output reg [24:0] chr_aout,       // CHR Input / Output Address Lines
 	output reg  [7:0] chr_dout,       // Value to override CHR data with
 	output reg        has_chr_dout,   // True if CHR data should be overridden
 	output reg        chr_allow,      // CHR Allow write
@@ -1235,14 +1240,19 @@ Mapper99 map99(
 // Name   : Broke Studio Rainbow (RNBW)                                        //
 // Mappers: 682                                                                //
 // Status : Preliminary — needs hardware/Quartus validation                    //
-// Notes  : No Wi-Fi/ESP. Expansion audio, window split, sprite-ext, OAM code, //
-//          vector redirect, flash deferred. FPGA-RAM + banking + IRQs present.//
+// Notes  : EXP6 audio, PPU-timed window split, dual-port FPGA-RAM and IRQs.   //
+//          Wi-Fi, sprite-ext, OAM code, vectors and flash deferred.           //
 // Games  : Rainbow homebrew                                                   //
 //*****************************************************************************//
+wire [24:0] rainbow_prg_address, rainbow_chr_address;
 Mapper682 map682(
 	.clk        (clk),
 	.ce         (ce),
 	.enable     (me[682]),
+	.prg_rom_mask(prg_mask),
+	.chr_rom_mask(chr_mask),
+	.prg_address(rainbow_prg_address),
+	.chr_address(rainbow_chr_address),
 	.flags      (flags),
 	.prg_ain    (prg_ain),
 	.prg_aout_b (prg_addr_b),
@@ -1262,7 +1272,13 @@ Mapper682 map682(
 	.flags_out_b(flags_out_b),
 	.audio_in   (audio_in),
 	.audio_b    (audio_out_b),
+	.ppu_dot    (ppu_dot),
+	.ppu_line   (ppu_line),
+	.ppu_rendering(ppu_rendering),
+    .sprite_oam_index(chr_ex ? sprite_oam_index_ex : sprite_oam_index),
+    .sprite_size_16(sprite_size_16),
 	.chr_ain_o  (chr_ain_orig),
+	.chr_ex     (chr_ex),
 	.chr_write  (chr_write),
 	.chr_din    (chr_din),
 	.paused     (paused),
@@ -2569,7 +2585,7 @@ always @* begin
 
 	// Mapper output to cart pins
 	{prg_aout[21:0], prg_allow,   chr_aout,   vram_a10,   vram_ce,   chr_allow,   prg_dout,   chr_dout,   irq,   audio} =
-	{prg_addr_b,     prg_allow_b, chr_addr_b, vram_a10_b, vram_ce_b, chr_allow_b, prg_dout_b, chr_dout_b, irq_b, audio_out_b};
+	{prg_addr_b,     prg_allow_b, {3'b0,chr_addr_b}, vram_a10_b, vram_ce_b, chr_allow_b, prg_dout_b, chr_dout_b, irq_b, audio_out_b};
 
 	// Currently only used for Mapper 16 EEPROM. Expand if needed.
 	{mapper_addr, mapper_data_out, mapper_prg_write, mapper_ovr} = (me[159] | me[16]) ?
@@ -2595,6 +2611,13 @@ always @* begin
 	if (chr_aout[21:20] == 2'b10)
 		chr_aout[19:0] = {(chr_aout[19:11] & chr_mask[8:0]), chr_aout[10:0]};
 
+
+	// Rainbow has independent 8MiB ROM apertures; do not apply the
+	// legacy mapper tags/masks to its already translated SDRAM addresses.
+	if (me[682]) begin
+		prg_aout = rainbow_prg_address;
+		chr_aout = rainbow_chr_address;
+	end
 
 	// Remap the CHR address into VRAM, if needed.
 	chr_aout = vram_ce ? {11'b11_1010_0000_0, vram_a10, chr_ain[9:0]} : chr_aout;

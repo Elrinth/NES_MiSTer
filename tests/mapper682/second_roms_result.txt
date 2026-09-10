@@ -1,0 +1,14 @@
+PASS header 0: PRG 1024KiB CHR 0KiB, loader and all bank modes
+PASS header 1: PRG 1024KiB CHR 1024KiB, loader and all bank modes
+PASS header 2: PRG 1024KiB CHR 1024KiB, loader and all bank modes
+PASS header 3: PRG 128KiB CHR 0KiB, loader and all bank modes
+PASS header 4: PRG 128KiB CHR 128KiB, loader and all bank modes
+PASS header 5: PRG 128KiB CHR 128KiB, loader and all bank modes
+PASS header 6: PRG 2048KiB CHR 2048KiB, loader and all bank modes
+PASS header 7: PRG 256KiB CHR 0KiB, loader and all bank modes
+PASS header 8: PRG 4096KiB CHR 4096KiB, loader and all bank modes
+PASS header 9: PRG 512KiB CHR 0KiB, loader and all bank modes
+PASS header 10: PRG 8192KiB CHR 8192KiB, loader and all bank modes
+PASS header 11: PRG 8192KiB CHR 8192KiB, loader and all bank modes
+PASS header 12: PRG 1024KiB CHR 1024KiB, loader and all bank modes
+PASS: 12 test ROMs + SotN + legacy headers, 229211 loader/banking assertions

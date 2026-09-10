@@ -468,6 +468,7 @@ module OAMEval(
 	input [8:0] cycle,         // Current cycle.
 	output [7:0] oam_bus,      // Current value on the OAM bus, returned to NES through $2004.
 	output reg [31:0] oam_bus_ex,
+    output reg [95:0] sprite_origins,
 	input oam_addr_write,      // Load oam with specified value, when writing to NES $2003.
 	input oam_data_write,      // Load oam_ptr with specified value, when writing to NES $2004.
 	input [7:0] oam_din,       // New value for oam or oam_ptr
@@ -494,7 +495,11 @@ module OAMEval(
 
 wire [63:0] SS_OAMEVAL;
 wire [63:0] SS_OAMEVAL_BACK;
-eReg_SavestateV #(SSREG_INDEX_OAMEVAL, SSREG_DEFAULT_OAMEVAL) iREG_SAVESTATE (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, SaveStateBus_Dout, SS_OAMEVAL_BACK, SS_OAMEVAL);
+wire [63:0] ss_eval_out, ss_orig0_out, ss_orig1_out, ss_orig0, ss_orig1;
+eReg_SavestateV #(SSREG_INDEX_OAMEVAL, SSREG_DEFAULT_OAMEVAL) iREG_SAVESTATE (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, ss_eval_out, SS_OAMEVAL_BACK, SS_OAMEVAL);
+eReg_SavestateV #(10'd13, 64'hFFFFFFFFFFFFFFFF) iSS_ORIG0 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, ss_orig0_out, sprite_origins[63:0], ss_orig0);
+eReg_SavestateV #(10'd14, 64'hFFFFFFFF) iSS_ORIG1 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, ss_orig1_out, {32'b0,sprite_origins[95:64]}, ss_orig1);
+assign SaveStateBus_Dout = ss_eval_out | ss_orig0_out | ss_orig1_out;
 
 
 // https://wiki.nesdev.com/w/index.php/PPU_sprite_evaluation
@@ -599,6 +604,7 @@ if (Savestate_OAMWrEn) oam[Savestate_OAMAddr] <= Savestate_OAMWriteData;
 
 if (reset) begin
 	oam_temp <= '{64{8'hFF}};
+    sprite_origins <= {ss_orig1[31:0],ss_orig0};
 
 	oam_data         <= SS_OAMEVAL[ 7: 0]; //oam_temp[0] == 8'hFF
 	oam_secondary_ovr    <= ~SS_OAMEVAL[    8]; //1;
@@ -695,6 +701,7 @@ end else if (ce) begin
 					if (scanline[7:0] >= oam[{oam_addr_ex, 2'b00}] &&
 						scanline[7:0] < oam[{oam_addr_ex, 2'b00}] + (obj_size ? 16 : 8)) begin
 						if (oam_secondary_row_ex < 8) begin // Turbo style.
+                            sprite_origins[(8+oam_secondary_row_ex)*6 +: 6] <= oam_addr_ex;
 							oam_secondary_row_ex <= oam_secondary_row_ex + 1'b1;
 							oam_temp[{oam_secondary_row_ex, 2'b00} + 6'd32] <= oam[{oam_addr_ex, 2'b00}];
 							oam_temp[{oam_secondary_row_ex, 2'b01} + 6'd32] <= oam[{oam_addr_ex, 2'b01}];
@@ -718,6 +725,8 @@ end else if (ce) begin
 
 					if (eval_count == 2'd0) begin // Evaluate Y for in_range
 						if (in_range && ~is_pre_render && ~n_ovr) begin
+                            if (~oam_secondary_ovr)
+                                sprite_origins[oam_secondary_addr[4:2]*6 +: 6] <= oam_addr[7:2];
 							eval_count <= 2'd1; // is good, start copy
 							{n_ovr, oam_addr} <= {1'b0, oam_addr} + 9'd1;
 
@@ -1326,6 +1335,8 @@ module PPU(
 	input         extra_sprites,
 	input  [1:0]  mask,
 	output        render_ena_out,
+    output [5:0] sprite_oam_index, sprite_oam_index_ex,
+    output sprite_size_16,
 	output        evenframe,
 	// savestates
 	input [63:0]  SaveStateBus_Din,
@@ -1524,6 +1535,10 @@ wire show_bg_on_pixel = (playfield_clip || out_of_clip) && eb_sr[1];
 wire [3:0] bg_pixel = {bg_pixel_noblank[3:2], show_bg_on_pixel ? bg_pixel_noblank[1:0] : 2'b00};
 
 wire [31:0] oam_bus_ex;
+wire [95:0] sprite_origins;
+assign sprite_oam_index = sprite_origins[cycle[5:3]*6 +: 6];
+assign sprite_oam_index_ex = sprite_origins[(8+cycle[5:3])*6 +: 6];
+assign sprite_size_16 = obj_size1;
 wire masked_sprites;
 
 wire [8:0] scanline_nopr = is_pre_render_line ? (pal_or_dendy ? 9'd311 : 9'd261) : scanline;
@@ -1540,6 +1555,7 @@ OAMEval spriteeval (
 	.clear_signal      (clear_signal),
 	.oam_bus           (oam_bus),
 	.oam_bus_ex        (oam_bus_ex),
+    .sprite_origins    (sprite_origins),
 	.oam_addr_write    (write && (ppu_ain == 3)),
 	.oam_data_write    (write && (ppu_ain == 4)),
 	.oam_din           (ppu_dbus),

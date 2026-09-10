@@ -106,15 +106,15 @@ module NES(
 	output        cpumem_write,
 	output  [7:0] cpumem_dout,
 	input   [7:0] cpumem_din,
-	output [21:0] ppumem_addr,
+	output [24:0] ppumem_addr,
 	output        ppumem_read,
 	output        ppumem_write,
 	output  [7:0] ppumem_dout,
 	input   [7:0] ppumem_din,
 	output        refresh,
 
-	input  [20:0] prg_mask,
-	input  [19:0] chr_mask,
+	input  [11:0] prg_mask,
+	input  [11:0] chr_mask,
 
 	// Override for BRAM
 	output [17:0] bram_addr,      // address to access
@@ -642,6 +642,8 @@ PPU ppu(
 	.extra_sprites    (ex_sprites),
 	.mask             (mask),
 	.render_ena_out   (render_ena),
+    .sprite_oam_index(sprite_oam_index), .sprite_oam_index_ex(sprite_oam_index_ex),
+    .sprite_size_16(sprite_size_16),
 	.evenframe        (evenframe),
 	.hblank           (hblank),
 	.vblank           (vblank),
@@ -667,6 +669,8 @@ PPU ppu(
 /**********************************************************/
 
 wire [15:0] prg_addr = addr;
+wire [5:0] sprite_oam_index, sprite_oam_index_ex;
+wire sprite_size_16;
 wire [7:0] prg_din = (dbus & (prg_conflict ? cpumem_din : 8'hFF)) | (prg_conflict_d0 ? cpumem_din & 8'h01 : 8'h00);
 
 wire prg_read  = mr_int && cart_pre && (addr[15:5] != 11'b0100_0000_000) && !ppu_cs;
@@ -674,7 +678,7 @@ wire prg_write = mw_int && cart_pre;
 
 wire prg_allow, vram_a10, vram_ce, chr_allow;
 wire [24:0] prg_linaddr;
-wire [21:0] chr_linaddr;
+wire [24:0] chr_linaddr;
 wire [7:0] prg_dout_mapper, chr_from_ppu_mapper;
 wire [15:0] sample_ext;
 wire has_chr_from_ppu_mapper, prg_bus_write, prg_conflict, prg_conflict_d0, has_flashsaves;
@@ -701,6 +705,11 @@ cart_top multi_mapper (
 	.prg_din           (prg_din),                 // CPU Data bus in (split from bid)
 	.prg_dout          (prg_dout_mapper),         // CPU Data bus out (split from bid)
 	.chr_ex            (chr_read_ex),             // Flag indicating to use extra sprite addr
+	.ppu_dot           (ppu_cycle),
+	.ppu_line          (scanline_ppu),
+	.ppu_rendering     (render_ena),
+    .sprite_oam_index(sprite_oam_index), .sprite_oam_index_ex(sprite_oam_index_ex),
+    .sprite_size_16(sprite_size_16),
 	.chr_ain_orig      (chr_addr),                // PPU address in
 	.chr_ain_ex        (chr_addr_ex),             // PPU address for extra sprites
 	.chr_read          (chr_read),                // PPU read (inverted, active high)

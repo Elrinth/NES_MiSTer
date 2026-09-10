@@ -1,0 +1,5 @@
+PASS: scrolling, coarse/fine Y, CHR banks, concurrent RAM reads
+PASS: HUD window, prefetch boundaries, Y wrap, sprite isolation
+PASS: 240 scanlines, held read strobes, HBlank and IRQ timing
+PASS: EXP6 pulse periods, both pulses, saw, mute, volume and state round-trip
+ALL PASS: 166885 assertions

@@ -1,0 +1,2 @@
+PASS real PPU: offsets 0..170, alternating scanlines, IRQ ack and HBlank waits
+- tests/mapper682/tb_mapper682_irq.sv:101: Verilog $finish

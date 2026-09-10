@@ -1,0 +1,19 @@
+Mapper 682 services revision
+
+Fixes the reproduced CPU Cycle IRQ -> PPU Scanline IRQ mainline freeze by
+acknowledging scanline IRQ on NMI vector fetches, matching Mesen. The old
+mapper fails the targeted T65 regression; this version passes. CPU Cycle
+IRQ's displayed value 5 is expected. Hardware confirmation is still needed.
+
+Adds sprite extended banks, original OAM-index tracking, OAM clear and
+extended-bank update routines, and NMI/IRQ vector redirection. Includes
+save-state coverage for the new state. Use Extra Sprites Off to compare
+with the ordinary NES sprite limit in Mesen.
+
+PRG mapping is unchanged. Both PRG diagnostic ROM variants passed on the
+user's testfix core. Original-ROM cold-start PRG results remain to confirm.
+No claim of complete Rainbow compatibility: Wi-Fi/ESP, self-flashing,
+IPCM and EPSM remain unsupported.
+
+See source/tests/mapper682/README.md and round3_* logs for verification.
+The *_before_result log deliberately records the previous core's failure.

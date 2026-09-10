@@ -14,21 +14,27 @@
 //      bg-ext 4K CHR addr is 22-bit-safe; sticky through BG pattern fetches)
 //   - Scanline IRQ ($4150-$4153) and CPU-cycle IRQ ($4157-$415B)
 //   - Mapper version ($4160), IRQ status ($4161), SaveStateBus + FPGA-RAM savestate
+//   - Window Split Mode ($4120.W / $412E-$412F / $4170-$4175), including
+//     next-line prefetch and independent fine-Y, from actual PPU dot timing
+//   - EXP6/VRC6 pulse + saw audio ($41A0-$41A8), enable and volume ($41A9/$41AA)
+//   - Independent CPU/PPU FPGA-RAM ports for active-display tile streaming
+//   - Full 8MiB PRG + 8MiB CHR-ROM, 256KiB PRG/CHR-RAM, NES 2.0 size masks
+//   - Sprite extended banks using actual evaluated OAM indices, 8x8 / 8x16
+//   - Executable OAM slow update, extended-bank update and clear routines
+//   - NMI/IRQ vector redirection ($416B-$416F)
 // Deferred (explicitly):
 //   - Wi-Fi/ESP ($4190-$4194)
-//   - Expansion audio ($41A0-$41AA) / IPCM / EPSM
-//   - Window Split Mode rendering ($4120.W / $412E-$412F / $4170-$4175)
-//   - Sprite Extended Mode ($4200-$4240)
-//   - Auto-generated OAM routines ($4241-$4243 / $4280/$4282)
-//   - Vector redirection ($416B-$416F)
+//   - IPCM / EPSM
 //   - Self-flash PRG/CHR
-//   - Full 8MiB PRG/CHR via extended SDRAM address bits (maps within ~2MB/~1MB)
+
 
 module Mapper682(
 	input         clk,
 	input         ce,
 	input         enable,
 	input  [63:0] flags,
+	input  [11:0] prg_rom_mask, chr_rom_mask,
+	output [24:0] prg_address, chr_address,
 	input  [15:0] prg_ain,
 	inout  [21:0] prg_aout_b,
 	input         prg_read,
@@ -48,6 +54,12 @@ module Mapper682(
 	inout  [15:0] audio_b,
 	inout  [15:0] flags_out_b,
 	input  [13:0] chr_ain_o,
+	input         chr_ex,       // Extra sprite fetch, never a background fetch
+	input  [8:0]  ppu_dot,      // Actual PPU cycle: 0..340
+	input  [8:0]  ppu_line,     // Actual PPU scanline; pre-render is 511
+	input         ppu_rendering,
+    input [5:0] sprite_oam_index,
+    input sprite_size_16,
 	input         chr_write,
 	input   [7:0] chr_din,
 	input         paused,
@@ -67,21 +79,47 @@ module Mapper682(
 
 import regs_savestates::*;
 
-assign prg_aout_b  = enable ? prg_aout  : 22'hZ;
+assign prg_aout_b  = enable ? prg_aout[21:0] : 22'hZ;
 assign prg_dout_b  = enable ? prg_dout  : 8'hZ;
 assign prg_allow_b = enable ? prg_allow : 1'hZ;
-assign chr_aout_b  = enable ? chr_aout  : 22'hZ;
+assign chr_aout_b  = enable ? chr_aout[21:0] : 22'hZ;
 assign chr_dout_b  = enable ? chr_dout  : 8'hZ;
 assign chr_allow_b = enable ? chr_allow : 1'hZ;
 assign vram_a10_b  = enable ? vram_a10  : 1'hZ;
 assign vram_ce_b   = enable ? vram_ce   : 1'hZ;
 assign irq_b       = enable ? irq       : 1'hZ;
 assign flags_out_b = enable ? flags_out : 16'hZ;
-assign audio_b     = enable ? {1'b0, audio_in[15:1]} : 16'hZ;
+assign audio_b     = enable ? mixed_audio[16:1] : 16'hZ;
 
 wire [15:0] flags_out = {12'h0, 1'b1, 1'b0, prg_bus_write, has_chr_dout};
 
-wire [21:0] prg_aout, chr_aout;
+wire [24:0] prg_aout, chr_aout;
+assign prg_address = prg_aout;
+assign chr_address = chr_aout;
+// Rainbow gets disjoint 8MiB PRG/CHR ROM apertures in the 32MiB SDRAM.
+// The shared core's CPU/CIRAM/savestate regions stay at their existing addresses.
+localparam [24:0] PRG_ROM_BASE = 25'h0800000;
+localparam [24:0] CHR_ROM_BASE = 25'h1000000;
+localparam [24:0] PRG_RAM_BASE = 25'h03C0000;
+localparam [24:0] CHR_RAM_BASE = 25'h0300000;
+wire [3:0] prg_ram_shift = flags[34:31] > flags[29:26] ? flags[34:31] : flags[29:26];
+wire [17:0] prg_ram_mask = prg_ram_shift == 0 ? 18'h07FFF :
+    prg_ram_shift >= 12 ? 18'h3FFFF : (18'd64 << prg_ram_shift) - 18'd1;
+wire [3:0] chr_ram_shift = flags[63:60];
+wire [17:0] chr_ram_mask = chr_ram_shift == 0 ? 18'h07FFF :
+    chr_ram_shift >= 12 ? 18'h3FFFF : (18'd64 << chr_ram_shift) - 18'd1;
+function [24:0] prg_rom_address(input [22:0] offset);
+    prg_rom_address = PRG_ROM_BASE | {2'b0, (offset & {prg_rom_mask,11'h7FF})};
+endfunction
+function [24:0] chr_rom_address(input [22:0] offset);
+    chr_rom_address = CHR_ROM_BASE | {2'b0, (offset & {chr_rom_mask,11'h7FF})};
+endfunction
+function [24:0] prg_ram_address(input [17:0] offset);
+    prg_ram_address = PRG_RAM_BASE | {7'b0, (offset & prg_ram_mask)};
+endfunction
+function [24:0] chr_ram_address(input [17:0] offset);
+    chr_ram_address = CHR_RAM_BASE | {7'b0, (offset & chr_ram_mask)};
+endfunction
 wire  [7:0] prg_dout, chr_dout;
 wire        prg_allow, chr_allow, vram_a10, vram_ce, irq;
 wire        prg_bus_write, has_chr_dout;
@@ -100,6 +138,85 @@ reg [7:0] fill_tile;
 reg [1:0] fill_attr;
 reg [7:0] nt_bank[0:3], nt_ctrl[0:3];
 reg [7:0] chr_hi[0:15], chr_lo[0:15];
+reg [7:0] sprite_ext[0:63];
+reg [2:0] sprite_ext_bank;
+wire use_sprite_ext = chr_mode_reg[5] && ppu_in_frame && ppu_dot >= 256 && ppu_dot < 320;
+wire [22:0] sprite_ext_address = sprite_size_16 ?
+    {sprite_ext_bank[1:0], sprite_ext[sprite_oam_index], chr_ain[12:0]} :
+    {sprite_ext_bank, sprite_ext[sprite_oam_index], chr_ain[11:0]};
+
+// Executable slow OAM transfer at $4280. Generate instruction bytes instead
+// of allocating a 1286-byte ROM: LDA #0 / STA $2003, then 256 pairs of
+// LDA #shadow_byte / STA $2004, finally RTS. X/Y are preserved.
+reg [2:0] oam_page;
+reg [4:0] oam_ext_page;
+reg [1:0] oam_kind;
+reg oam_locked;
+reg [1:0] vector_enable;
+reg [15:0] nmi_vector, irq_vector;
+wire vector_hit = ((prg_ain == 16'hFFFA || prg_ain == 16'hFFFB) && vector_enable[0]) ||
+                  ((prg_ain == 16'hFFFE || prg_ain == 16'hFFFF) && vector_enable[1]);
+wire [15:0] selected_vector = prg_ain[2] ? irq_vector : nmi_vector;
+reg [5:0] oam_limit;
+reg [7:0] oam_read_data;
+wire oam_code = prg_ain >= 16'h4280 && prg_ain < 16'h4800;
+wire oam_entry = !oam_locked && (prg_ain == 16'h4280 || prg_ain == 16'h4282 || prg_ain == 16'h4286);
+wire [1:0] oam_active_kind = oam_entry ? (prg_ain == 16'h4280 ? 2'd0 : prg_ain == 16'h4282 ? 2'd1 : 2'd2) : oam_kind;
+wire [10:0] oam_offset = prg_ain - (oam_active_kind == 1 ? 16'h4282 : 16'h4285);
+wire [10:0] oam_index = oam_offset / 11'd5;
+wire [2:0] oam_phase = oam_offset % 11'd5;
+wire [12:0] oam_ram_addr = oam_active_kind == 1 ? {2'b11, oam_ext_page, oam_index[5:0]} : {2'b11, oam_page, oam_index[7:0]};
+wire [10:0] clear_offset = prg_ain - 16'h4286;
+wire [10:0] clear_regular = clear_offset < 2 ? clear_offset : clear_offset - 11'd2;
+reg [7:0] oam_instruction;
+always @* begin
+    oam_instruction = 8'h60;
+    if (oam_active_kind == 2) begin
+        if (clear_offset == 2) oam_instruction = 8'hAA; // TAX, first sprite only
+        else if (clear_offset == 3) oam_instruction = 8'hCA; // DEX -> $FF
+        else if (clear_regular < 512) begin
+            case (clear_regular[2:0])
+                0: oam_instruction = 8'hA9;
+                1: oam_instruction = {clear_regular[8:3], 2'b00};
+                2: oam_instruction = 8'h8D;
+                3: oam_instruction = 8'h03;
+                4: oam_instruction = 8'h20;
+                5: oam_instruction = 8'h8E;
+                6: oam_instruction = 8'h04;
+                7: oam_instruction = 8'h20;
+            endcase
+        end
+    end else if (oam_active_kind == 1) begin
+        if (oam_index <= {5'b0, oam_limit}) begin
+            case (oam_phase)
+                0: oam_instruction = 8'hA9;
+                1: oam_instruction = ram_qA;
+                2: oam_instruction = 8'h8D;
+                3: oam_instruction = {2'b00, oam_index[5:0]};
+                4: oam_instruction = 8'h42;
+                default: ;
+            endcase
+        end
+    end else if (prg_ain < 16'h4285) begin
+        case (prg_ain[2:0])
+            0: oam_instruction = 8'hA9;
+            1: oam_instruction = 8'h00;
+            2: oam_instruction = 8'h8D;
+            3: oam_instruction = 8'h03;
+            4: oam_instruction = 8'h20;
+            default: ;
+        endcase
+    end else if (oam_index < ({5'b0, oam_limit} + 11'd1) * 11'd4) begin
+        case (oam_phase)
+            0: oam_instruction = 8'hA9;
+            1: oam_instruction = ram_qA;
+            2: oam_instruction = 8'h8D;
+            3: oam_instruction = 8'h04;
+            4: oam_instruction = 8'h20;
+            default: ;
+        endcase
+    end
+end
 
 reg [7:0] sl_latch, sl_offset, jitter;
 reg       sl_irq_en, sl_irq_pending;
@@ -110,18 +227,34 @@ reg        cpu_irq_en, cpu_irq_en_after, cpu_irq_pending;
 reg [12:0] fpga_auto_addr;
 reg [7:0]  fpga_auto_inc;
 
-reg        ppu_in_frame, ppu_in_hblank;
-reg [7:0]  ppu_scanline, ppu_read_ctr;
-reg [1:0]  nt_same_ctr, ppu_idle;
-reg [13:0] last_ppu_addr;
-reg [7:0]  ext_data;
-reg        override_tile;
-reg [7:0]  last_chr_dout;
-reg [9:0]  ext_tile_addr;   // NT tile offset for ext fetch when NT is FPGA-RAM
-reg        last_chr_a13;
-reg        last_chr_read;
-reg        is_sprite_fetch;
-reg [5:0]  ppu_tile_cnt;
+// PPU /RD is held for an entire dot (several clk edges). Do not count
+// its asserted level or infer scanlines from repeated addresses. Those reads
+// also occur during $2007 access and the extra-sprite fetch schedule.
+wire ppu_in_frame = ppu_rendering && (ppu_line < 9'd240 || ppu_line == 9'd511);
+wire ppu_in_hblank = ppu_in_frame && ppu_dot >= 9'd257;
+wire [7:0] ppu_scanline = ppu_line == 9'd511 ? 8'd0 : ppu_line[7:0];
+wire bg_fetch = ppu_in_frame && !chr_ex &&
+    ((ppu_dot >= 9'd1 && ppu_dot <= 9'd256) ||
+     (ppu_dot >= 9'd321 && ppu_dot <= 9'd336));
+reg [7:0] ext_data;
+reg override_tile;
+reg [7:0] last_chr_dout;
+reg [7:0] fpga_read_data;
+reg [9:0] ext_tile_addr;
+reg last_chr_read;
+
+// Window Split Mode ($4120 bit4, $412E/$412F, $4170-$4175)
+reg [7:0]  split_bank;       // $412E
+reg [7:0]  split_ctrl;       // $412F (chip forced FPGA-RAM)
+reg [4:0]  split_x0, split_x1; // $4170/$4171 tile columns
+reg [7:0]  split_y0, split_y1; // $4172/$4173 scanlines (web: y < y1)
+reg [4:0]  split_sx;         // $4174 coarse X scroll (tiles)
+reg [7:0]  split_sy;         // $4175 fine Y scroll
+wire [7:0] split_screen_y = (ppu_dot >= 9'd321)
+    ? (ppu_line == 9'd511 ? 8'd0 : ppu_line[7:0] + 8'd1)
+    : ppu_scanline;
+reg [7:0]  split_ext_data;   // latched ext byte for split attr/bg-ext
+reg [9:0]  split_tile_addr;  // NT tile offset inside split nametable
 
 // -------------------------------------------------------------------------
 // 8KB FPGA-RAM (dual-port)
@@ -143,10 +276,12 @@ wire [1:0]  low_src  = low_bank[15:14];
 wire [12:0] fpga_cpu_addr =
 	prg_fpga_fixed ? {2'b11, prg_ain[10:0]} :
 	prg_fpga_banked? {fpga_bank, prg_ain[11:0]} :
+	prg_is_hi ? prg_lin[12:0] :
 	(prg_mode_reg[7] ? {low_bank[0], prg_ain[11:0]} : prg_ain[12:0]);
 
 wire prg_low_fpga = prg_is_low && (low_src == 2'b11);
-wire prg_hit_fpga = prg_fpga_fixed | prg_fpga_banked | prg_low_fpga;
+wire prg_hit_fpga = prg_fpga_fixed | prg_fpga_banked | prg_low_fpga |
+    (prg_is_hi && prg_b16[15:14] == 2'b11);
 wire prg_hit_auto = prg_regs && (prg_ain[7:0] == 8'h5F);
 
 // PPU FPGA address (nametable / pattern)
@@ -159,38 +294,78 @@ wire [1:0] nt_ext_page = ntc[3:2];
 wire       nt_attr_ext = ntc[0];
 wire       nt_bg_ext   = ntc[1];
 
-wire ppu_is_nt = (chr_ain[13:12] == 2'b10) && ~(&chr_ain[9:6]);
-wire ppu_is_at = (chr_ain[13:12] == 2'b10) &&  (&chr_ain[9:6]);
+// During rendering the fetch phase distinguishes NT from AT, including
+// coarse Y=30/31, whose *tile* address is in the usual attribute range.
+wire ppu_is_nt = (chr_ain[13:12] == 2'b10) && (bg_fetch
+    ? (ppu_dot[2:0] == 3'd1 || ppu_dot[2:0] == 3'd2) : ~(&chr_ain[9:6]));
+wire ppu_is_at = (chr_ain[13:12] == 2'b10) && (bg_fetch
+    ? (ppu_dot[2:0] == 3'd3 || ppu_dot[2:0] == 3'd4) : (&chr_ain[9:6]));
 
 wire [1:0] chr_src = chr_mode_reg[7:6];
+wire       split_on = chr_mode_reg[4];
+
+// The visible fetch pipeline is two tiles ahead of the pixel output.
+// Dots 321..336 fetch tiles 0/1 of the next line (line 0 on pre-render).
+wire [8:0] fetch_dot = ppu_dot - 9'd1;
+wire [4:0] split_tile_x = ppu_dot >= 9'd321
+    ? {4'b0, ppu_dot[3]} : fetch_dot[7:3] + 5'd2;
+wire       split_in_x = (split_x0 <= split_x1)
+	? (split_tile_x >= split_x0 && split_tile_x <= split_x1)
+	: (split_tile_x >= split_x0 || split_tile_x <= split_x1);
+wire       split_in_y = (split_y0 <= split_y1)
+	? (split_screen_y >= split_y0 && split_screen_y < split_y1)
+	: (split_screen_y >= split_y0 || split_screen_y < split_y1);
+wire       in_split = split_on & bg_fetch & split_in_x & split_in_y;
+
+// Split NT loopy: coarse X scroll in tiles; Y = screenY + split_sy, wrap 30 rows.
+wire [8:0] split_y_sum = {1'b0, split_screen_y} + {1'b0, split_sy};
+wire [8:0] split_y_wrap = split_y_sum >= 9'd480 ? split_y_sum - 9'd480 :
+    split_y_sum >= 9'd240 ? split_y_sum - 9'd240 : split_y_sum;
+wire [4:0] split_col = split_tile_x + split_sx;
+wire [4:0] split_row = split_y_wrap[7:3];
+wire [9:0] split_nt_loopy = {split_row, split_col};
+wire [9:0] split_at_loopy = {4'b1111, split_row[4:2], split_col[4:2]};
+wire [2:0] split_fine_y = split_y_wrap[2:0];
+
+wire [1:0] split_ext_page = split_ctrl[3:2];
+wire       split_attr_ext = split_ctrl[0];
+wire       split_bg_ext   = split_ctrl[1];
+wire       split_need_ext = split_attr_ext | split_bg_ext;
 
 // Ext-mode FPGA addressing (BrokeStudio mapper-doc + MMC5-style pipeline):
 // - CIRAM/CHR-* NT + ext: during NT/AT, read ext page at the tile offset.
 // - FPGA-RAM NT + ext: NT cycles must return the nametable byte, so latch the
 //   tile offset and fetch the ext byte from nt_ext_page during the AT cycles.
+// - Window Split: always FPGA-RAM NT at split_bank; ext from split_ctrl DD page.
 // altsyncram address_reg_b => 1 clk latency; PPU holds NT/AT for 2 dots.
 wire       ppu_need_ext = nt_attr_ext | nt_bg_ext;
-wire       ppu_ext_at   = ppu_need_ext & ppu_is_at & (nt_src == 2'b10);
-wire       ppu_ext_nt   = ppu_need_ext & ppu_is_nt & (nt_src != 2'b10);
+// Always re-fetch ext on AT via latched tile offset (CIRAM *and* FPGA-NT).
+// Using chr_ain[9:0] on AT would hit the attribute loopy (0x3C0+), not the tile.
+wire       ppu_ext_at   = ppu_need_ext & ppu_is_at & ~in_split;
+wire       ppu_ext_nt   = ppu_need_ext & ppu_is_nt & (nt_src != 2'b10) & ~in_split;
 
 wire [12:0] fpga_ppu_addr =
-	!chr_ain[13] ? {1'b0, chr_ain[11:0]} :
+	!chr_ain[13] ? (use_sprite_ext ? sprite_ext_address[12:0] : {1'b0, (in_split ? {chr_ain[11:3], split_fine_y} : chr_ain[11:0])}) :
+	// Window Split NT/AT (and split ext on AT when EE!=0)
+	(in_split && ppu_is_at && split_need_ext) ? {split_ext_page, split_tile_addr} :
+	(in_split && (ppu_is_nt || ppu_is_at)) ? {split_bank[1:0], ppu_is_nt ? split_nt_loopy : split_at_loopy} :
 	ppu_ext_at   ? {nt_ext_page, ext_tile_addr} :
 	ppu_ext_nt   ? {nt_ext_page, chr_ain[9:0]} :
 	(nt_src == 2'b10) ? {ntb[1:0], chr_ain[9:0]} :
 	ppu_need_ext ? {nt_ext_page, chr_ain[9:0]} :
 	               {ntb[1:0], chr_ain[9:0]};
 
-wire [12:0] ram_addrB = Savestate_MAPRAMactive ? Savestate_MAPRAMAddr :
-                        prg_hit_auto ? fpga_auto_addr :
-                        prg_hit_fpga ? fpga_cpu_addr :
-                        fpga_ppu_addr;
+// Port A handles CPU reads/writes and $2007 writes. Port B remains on
+// the PPU even during CPU reads, so streaming cannot steal attribute data.
+wire [12:0] ram_addr_cpu = ram_wrenA ? ram_addrA :
+    oam_code ? oam_ram_addr : prg_hit_auto ? fpga_auto_addr : fpga_cpu_addr;
+wire [12:0] ram_addrB = Savestate_MAPRAMactive ? Savestate_MAPRAMAddr : fpga_ppu_addr;
 wire       ram_wrenB = Savestate_MAPRAMactive & Savestate_MAPRAMWrEn;
 wire [7:0] ram_dataB = Savestate_MAPRAMWriteData;
-wire [7:0] ram_qB;
+wire [7:0] ram_qA, ram_qB;
 
 dpram #(.widthad_a(13)) fpga_ram (
-	.clock_a(clk), .address_a(ram_addrA), .wren_a(ram_wrenA), .byteena_a(1'b1), .data_a(ram_dataA),
+	.clock_a(clk), .address_a(ram_addr_cpu), .wren_a(ram_wrenA), .byteena_a(1'b1), .data_a(ram_dataA), .q_a(ram_qA),
 	.clock_b(clk), .address_b(ram_addrB), .wren_b(ram_wrenB), .byteena_b(1'b1), .data_b(ram_dataB), .q_b(ram_qB)
 );
 assign Savestate_MAPRAMReadData = enable ? ram_qB : 8'h00;
@@ -228,13 +403,13 @@ wire [15:0] prg_b16 = {prg_hi[prg_ridx], prg_lo[prg_ridx]};
 wire        prg_to_ram = prg_b16[15];
 wire [14:0] prg_bnum = prg_b16[14:0];
 
-reg [20:0] prg_lin;
+reg [22:0] prg_lin;
 always @* begin
 	case (prg_bsh)
-		3'd5: prg_lin = {prg_bnum[5:0], prg_ain[14:0]};
-		3'd4: prg_lin = {prg_bnum[6:0], prg_ain[13:0]};
-		3'd3: prg_lin = {prg_bnum[7:0], prg_ain[12:0]};
-		default: prg_lin = {prg_bnum[8:0], prg_ain[11:0]};
+		3'd5: prg_lin = {prg_bnum[7:0], prg_ain[14:0]};
+		3'd4: prg_lin = {prg_bnum[8:0], prg_ain[13:0]};
+		3'd3: prg_lin = {prg_bnum[9:0], prg_ain[12:0]};
+		default: prg_lin = {prg_bnum[10:0], prg_ain[11:0]};
 	endcase
 end
 
@@ -248,21 +423,21 @@ always @* begin
 		default: chr_ridx = chr_ain[12:9];
 	endcase
 end
-wire [12:0] chr_bnum = {chr_hi[chr_ridx][4:0], chr_lo[chr_ridx]};
+// Mesen and the 8MiB test ROM use bit 13 in 512-byte mode.
+wire [13:0] chr_bnum = {chr_hi[chr_ridx][5:0], chr_lo[chr_ridx]};
 
-reg [19:0] chr_lin;
+reg [22:0] chr_lin;
 always @* begin
-	case (chr_md)
-		3'd0: chr_lin = {chr_bnum[6:0], chr_ain[12:0]};
-		3'd1: chr_lin = {chr_bnum[7:0], chr_ain[11:0]};
-		3'd2: chr_lin = {chr_bnum[8:0], chr_ain[10:0]};
-		3'd3: chr_lin = {chr_bnum[9:0], chr_ain[9:0]};
-		default: chr_lin = {chr_bnum[10:0], chr_ain[8:0]};
-	endcase
+    case (chr_md)
+        3'd0: chr_lin = {chr_bnum[9:0], chr_ain[12:0]};
+        3'd1: chr_lin = {chr_bnum[10:0], chr_ain[11:0]};
+        3'd2: chr_lin = {chr_bnum[11:0], chr_ain[10:0]};
+        3'd3: chr_lin = {chr_bnum[12:0], chr_ain[9:0]};
+        default: chr_lin = {chr_bnum[13:0], chr_ain[8:0]};
+    endcase
 end
-
-wire [20:0] low_rom = prg_mode_reg[7] ? {low_bank[8:0], prg_ain[11:0]} : {low_bank[7:0], prg_ain[12:0]};
-wire [16:0] low_ram = prg_mode_reg[7] ? {low_bank[4:0], prg_ain[11:0]} : {low_bank[3:0], prg_ain[12:0]};
+wire [22:0] low_rom = prg_mode_reg[7] ? {low_bank[10:0], prg_ain[11:0]} : {low_bank[9:0], prg_ain[12:0]};
+wire [17:0] low_ram = prg_mode_reg[7] ? {low_bank[5:0], prg_ain[11:0]} : {low_bank[4:0], prg_ain[12:0]};
 
 // -------------------------------------------------------------------------
 // Register writes + IRQ + scanline (single sequential block)
@@ -288,11 +463,19 @@ always @(posedge clk) begin
 		cpu_irq_latch <= 16'h0; cpu_irq_counter <= 16'h0;
 		cpu_irq_en <= 1'b0; cpu_irq_en_after <= 1'b0; cpu_irq_pending <= 1'b0; // $415A
 		fpga_auto_addr <= 13'h0; fpga_auto_inc <= 8'h0;
-		ppu_in_frame <= 1'b0; ppu_in_hblank <= 1'b0; ppu_scanline <= 8'h0; ppu_read_ctr <= 8'h0;
-		nt_same_ctr <= 2'h0; ppu_idle <= 2'h0; last_ppu_addr <= 14'h0;
 		ext_data <= 8'h0; override_tile <= 1'b0; last_chr_dout <= 8'h0;
-		ext_tile_addr <= 10'h0; last_chr_a13 <= 1'b0; last_chr_read <= 1'b0;
-		is_sprite_fetch <= 1'b0; ppu_tile_cnt <= 6'h0;
+		ext_tile_addr <= 10'h0; last_chr_read <= 1'b0;
+		fpga_read_data <= 8'h0;
+        oam_page <= 3'd7; oam_limit <= 6'd63; oam_read_data <= 8'h60;
+        oam_ext_page <= 5'd0; oam_kind <= 0; oam_locked <= 0;
+        vector_enable <= 0; nmi_vector <= 0; irq_vector <= 0;
+        sprite_ext_bank <= 0;
+        for (i=0;i<64;i=i+1) sprite_ext[i] <= 0;
+		audio_ctrl <= 3'b0; audio_volume <= 4'hF;
+		split_bank <= 8'h00; split_ctrl <= 8'h80; // mapper-doc power-up
+		split_x0 <= 5'h0; split_x1 <= 5'h1F; split_y0 <= 8'h0; split_y1 <= 8'h0;
+		split_sx <= 5'h0; split_sy <= 8'h0;
+		split_ext_data <= 8'h0; split_tile_addr <= 10'h0;
 	end else if (SaveStateBus_load) begin
 		prg_mode_reg <= SS_MAP1[7:0];
 		fpga_bank    <= SS_MAP1[8];
@@ -308,10 +491,7 @@ always @(posedge clk) begin
 		cpu_irq_en   <= SS_MAP1[51];
 		cpu_irq_en_after <= SS_MAP1[52];
 		cpu_irq_pending <= SS_MAP1[53];
-		ppu_in_frame <= SS_MAP1[54];
-		ppu_in_hblank<= SS_MAP1[55];
 		override_tile<= SS_MAP1[56];
-		ppu_scanline <= SS_MAP1[63:57]; // 7 bits enough for 0-239; pad
 
 		prg_hi[0] <= SS_MAP2[7:0];   prg_hi[1] <= SS_MAP2[15:8];
 		prg_hi[2] <= SS_MAP2[23:16]; prg_hi[3] <= SS_MAP2[31:24];
@@ -343,22 +523,73 @@ always @(posedge clk) begin
 		chr_lo[12] <= SS_MAP7[39:32]; chr_lo[13] <= SS_MAP7[47:40];
 		chr_lo[14] <= SS_MAP7[55:48]; chr_lo[15] <= SS_MAP7[63:56];
 
-		chr_hi[0]  <= {3'b0, SS_MAP8[4:0]};
-		chr_hi[1]  <= {3'b0, SS_MAP8[9:5]};
-		chr_hi[2]  <= {3'b0, SS_MAP8[14:10]};
-		chr_hi[3]  <= {3'b0, SS_MAP8[19:15]};
-		chr_hi[4]  <= {3'b0, SS_MAP8[24:20]};
-		chr_hi[5]  <= {3'b0, SS_MAP8[29:25]};
-		chr_hi[6]  <= {3'b0, SS_MAP8[34:30]};
-		chr_hi[7]  <= {3'b0, SS_MAP8[39:35]};
-		chr_hi[8]  <= {3'b0, SS_MAP8[44:40]};
-		chr_hi[9]  <= {3'b0, SS_MAP8[49:45]};
-		chr_hi[10] <= {3'b0, SS_MAP8[54:50]};
-		chr_hi[11] <= {3'b0, SS_MAP8[59:55]};
-		chr_hi[12] <= {4'b0, SS_MAP8[63:60]};
-		chr_hi[13] <= 8'h0; chr_hi[14] <= 8'h0; chr_hi[15] <= 8'h0;
+		chr_hi[0]  <= {2'b0, SS_MAP12[0], SS_MAP8[4:0]};
+		chr_hi[1]  <= {2'b0, SS_MAP12[1], SS_MAP8[9:5]};
+		chr_hi[2]  <= {2'b0, SS_MAP12[2], SS_MAP8[14:10]};
+		chr_hi[3]  <= {2'b0, SS_MAP12[3], SS_MAP8[19:15]};
+		chr_hi[4]  <= {2'b0, SS_MAP12[4], SS_MAP8[24:20]};
+		chr_hi[5]  <= {2'b0, SS_MAP12[5], SS_MAP8[29:25]};
+		chr_hi[6]  <= {2'b0, SS_MAP12[6], SS_MAP8[34:30]};
+		chr_hi[7]  <= {2'b0, SS_MAP12[7], SS_MAP8[39:35]};
+		chr_hi[8]  <= {2'b0, SS_MAP12[8], SS_MAP8[44:40]};
+		chr_hi[9]  <= {2'b0, SS_MAP12[9], SS_MAP8[49:45]};
+		chr_hi[10] <= {2'b0, SS_MAP12[10], SS_MAP8[54:50]};
+		chr_hi[11] <= {2'b0, SS_MAP12[11], SS_MAP8[59:55]};
+		chr_hi[12] <= {2'b0, SS_MAP12[12], SS_MAP11[0], SS_MAP8[63:60]};
+		chr_hi[13] <= {2'b0, SS_MAP12[13], SS_MAP11[5:1]};
+		chr_hi[14] <= {2'b0, SS_MAP12[14], SS_MAP11[10:6]};
+		chr_hi[15] <= {2'b0, SS_MAP12[15], SS_MAP11[15:11]};
+
+		split_bank      <= SS_MAP9[7:0];
+		split_ctrl      <= SS_MAP9[15:8];
+		split_x0        <= SS_MAP9[20:16];
+		split_x1        <= SS_MAP9[25:21];
+		split_y0        <= SS_MAP9[33:26];
+		split_y1        <= SS_MAP9[41:34];
+		split_sx        <= SS_MAP9[46:42];
+		split_sy        <= SS_MAP9[54:47];
+		audio_ctrl <= SS_MAP10[2:0];
+		audio_volume <= SS_MAP10[6:3];
+		fpga_auto_addr <= SS_MAP10[19:7];
+		fpga_auto_inc <= SS_MAP10[27:20];
+		ext_data <= SS_MAP10[35:28];
+		split_ext_data <= SS_MAP10[43:36];
+		ext_tile_addr <= SS_MAP10[53:44];
+		split_tile_addr <= SS_MAP10[63:54];
+		last_chr_dout <= SS_MAP11[23:16];
+		last_chr_read <= SS_MAP11[24];
+		jitter <= SS_MAP11[32:25];
+		fpga_read_data <= SS_MAP11[40:33];
+        oam_page <= SS_MAP12[18:16];
+        oam_limit <= SS_MAP12[24:19];
+        oam_read_data <= SS_MAP12[32:25];
+        {irq_vector, nmi_vector, vector_enable, oam_locked, oam_kind, oam_ext_page} <= SS_MAP13[41:0];
+        sprite_ext_bank <= SS_MAP13[44:42];
+        for (i=0;i<64;i=i+1) sprite_ext[i] <= SS_SPR[i/8][(i%8)*8 +: 8];
 	end else begin
 		if (ce) begin
+            if (prg_read && oam_code) begin
+                oam_read_data <= oam_instruction;
+                if (oam_entry) begin oam_kind <= oam_active_kind; oam_locked <= 1; end
+                if (prg_ain >= 16'h4286) oam_locked <= 0;
+            end
+            if (prg_write && prg_ain == 16'h4241) oam_page <= prg_din[2:0];
+            if (prg_write && prg_ain == 16'h4242) oam_ext_page <= prg_din[4:0];
+            if (prg_write && prg_ain == 16'h4243) oam_limit <= prg_din[5:0];
+            if (prg_write && prg_ain[15:6] == 10'h108) sprite_ext[prg_ain[5:0]] <= prg_din;
+            if (prg_write && prg_ain == 16'h4240) sprite_ext_bank <= prg_din[2:0];
+            if (prg_write) case (prg_ain)
+                16'h416B: vector_enable <= prg_din[1:0];
+                16'h416C: nmi_vector[15:8] <= prg_din;
+                16'h416D: nmi_vector[7:0] <= prg_din;
+                16'h416E: irq_vector[15:8] <= prg_din;
+                16'h416F: irq_vector[7:0] <= prg_din;
+                default: ;
+            endcase
+			// T65 samples two master clocks after cart ce. Hold the byte
+			// across an auto-reader increment until the next CPU access.
+			if (prg_read && (prg_hit_fpga || prg_hit_auto))
+				fpga_read_data <= ram_qA;
 			parity <= ~parity;
 			jitter <= jitter + 1'b1;
 
@@ -373,15 +604,10 @@ always @(posedge clk) begin
 					cpu_irq_counter <= cpu_irq_counter - 16'd1;
 			end
 
-			if (ppu_idle != 2'd0)
-				ppu_idle <= ppu_idle - 2'd1;
-			else begin
-				ppu_in_frame <= 1'b0;
-				ppu_in_hblank <= 1'b0;
-			end
-
 			if (prg_write && prg_regs) begin
 				casez (prg_ain[7:0])
+					8'hA9: audio_ctrl <= prg_din[2:0];
+					8'hAA: audio_volume <= prg_din[3:0];
 					8'h00: prg_mode_reg <= prg_din;
 					8'h06: ram_hi[0] <= prg_din;
 					8'h07: ram_hi[1] <= prg_din;
@@ -416,6 +642,8 @@ always @(posedge clk) begin
 					8'h2B: nt_ctrl[1] <= prg_din;
 					8'h2C: nt_ctrl[2] <= prg_din;
 					8'h2D: nt_ctrl[3] <= prg_din;
+					8'h2E: split_bank <= prg_din;
+					8'h2F: split_ctrl <= prg_din;
 					8'h30: chr_hi[0]  <= prg_din;
 					8'h31: chr_hi[1]  <= prg_din;
 					8'h32: chr_hi[2]  <= prg_din;
@@ -448,6 +676,12 @@ always @(posedge clk) begin
 					8'h4D: chr_lo[13] <= prg_din;
 					8'h4E: chr_lo[14] <= prg_din;
 					8'h4F: chr_lo[15] <= prg_din;
+					8'h70: split_x0 <= prg_din[4:0];
+					8'h71: split_x1 <= prg_din[4:0];
+					8'h72: split_y0 <= prg_din;
+					8'h73: split_y1 <= prg_din;
+					8'h74: split_sx <= prg_din[4:0];
+					8'h75: split_sy <= prg_din;
 					8'h50: sl_latch <= prg_din;
 					8'h51: sl_irq_en <= 1'b1;
 					8'h52: begin sl_irq_en <= 1'b0; sl_irq_pending <= 1'b0; end
@@ -478,7 +712,7 @@ always @(posedge clk) begin
 				endcase
 			end
 
-			if (prg_read && prg_ain == 16'h4151)
+			if (prg_read && (prg_ain == 16'h4151 || prg_ain == 16'hFFFA || prg_ain == 16'hFFFB))
 				sl_irq_pending <= 1'b0;
 
 			if (prg_read && prg_ain == 16'h415F)
@@ -492,82 +726,41 @@ always @(posedge clk) begin
 		end
 
 		if (~paused) begin
-			if (chr_read) begin
-				ppu_idle <= 2'd3;
-				last_chr_dout <= ram_qB;
-
-				if (chr_ain[13:12] == 2'b10) begin
-					if (chr_ain == last_ppu_addr) begin
-						if (nt_same_ctr < 2'd3)
-							nt_same_ctr <= nt_same_ctr + 2'd1;
-						if (nt_same_ctr >= 2'd2) begin
-							if (!ppu_in_frame) begin
-								ppu_in_frame <= 1'b1;
-								ppu_scanline <= 8'h0;
-								ppu_tile_cnt <= 6'd2;
-								is_sprite_fetch <= 1'b0;
-							end else
-								ppu_scanline <= ppu_scanline + 8'd1;
-							ppu_read_ctr <= 8'h0;
-							ppu_in_hblank <= 1'b0;
-							nt_same_ctr <= 2'd0;
-						end
-					end else
-						nt_same_ctr <= 2'd0;
-				end else
-					nt_same_ctr <= 2'd0;
-
-				last_ppu_addr <= chr_ain;
-
-				if (ppu_in_frame) begin
-					ppu_read_ctr <= ppu_read_ctr + 8'd1;
-					if (ppu_read_ctr == 8'd33)
-						ppu_in_hblank <= 1'b1;
-					if (sl_irq_en && sl_latch != 8'h00 &&
-					    ppu_scanline == sl_latch &&
-					    (ppu_read_ctr + 8'd1) == sl_offset) begin
-						sl_irq_pending <= 1'b1;
-						jitter <= 8'h0;
-					end
-				end
-
-				// Attribute/Background Extended Mode latch (MMC5-style):
-				// Capture ext on NT when NT is not FPGA-RAM (addr = ext page).
-				// When NT is FPGA-RAM, capture ext on AT (addr switched to ext page).
-				// Keep override_tile sticky through AT + BG pattern; clear only on
-				// the next NT (re-evaluated) — sprite fetches gated by is_sprite_fetch.
-				if (ppu_is_nt) begin
-					ext_tile_addr <= chr_ain[9:0];
-					if (ppu_need_ext && (nt_src != 2'b10))
-						ext_data <= ram_qB;
-					override_tile <= nt_bg_ext;
-				end else if (ppu_is_at && ppu_need_ext && (nt_src == 2'b10)) begin
-					ext_data <= ram_qB;
-				end
-			end
-
-			// MMC5-style BG vs sprite fetch tracking (for bg-ext CHR banking)
-			if (~last_chr_read & chr_read) begin
-				last_chr_a13 <= chr_ain[13];
-				if (ppu_in_frame) begin
-					if (last_chr_a13 & ~chr_ain[13]) begin
-						if (ppu_tile_cnt == 6'd41) begin
-							ppu_tile_cnt <= 6'd0;
-						end else
-							ppu_tile_cnt <= ppu_tile_cnt + 6'd1;
-					end
-					if (~last_chr_a13 & chr_ain[13]) begin
-						if (ppu_tile_cnt == 6'd34)
-							is_sprite_fetch <= 1'b1;
-						if (ppu_tile_cnt == 6'd0)
-							is_sprite_fetch <= 1'b0;
-					end
-				end
-			end
 			last_chr_read <= chr_read;
-
-			if (!ppu_in_frame)
-				is_sprite_fetch <= 1'b0;
+			// One event per physical /RD, with the IRQ offset measured in
+			// two-dot reads. Rendering resumes correctly even in mid-frame.
+			if (chr_read && !last_chr_read && ppu_in_frame &&
+			    sl_irq_en && sl_latch != 0 && ppu_scanline == sl_latch &&
+			    ppu_dot[8:1] == sl_offset &&
+			    !(ce && ((prg_write && prg_ain == 16'h4152) ||
+			             (prg_read && prg_ain == 16'h4151)))) begin
+				sl_irq_pending <= 1'b1;
+				jitter <= 8'h0;
+			end
+			if (chr_read) begin
+				// Data can settle throughout /RD; unlike counters this latch
+				// must allow the block RAM's registered address to propagate.
+				last_chr_dout <= ram_qB;
+				// Ext latch: NT latches tile offset (+ early CIRAM ext read);
+				// AT always re-fetches ext from latched offset (CIRAM + FPGA-NT).
+				// Window Split: NT uses split loopy; ext captured on AT.
+				if (bg_fetch && ppu_is_nt) begin
+					if (in_split) begin
+						split_tile_addr <= split_nt_loopy;
+						override_tile <= split_bg_ext;
+					end else begin
+						ext_tile_addr <= chr_ain_o[9:0];
+						if (ppu_need_ext && (nt_src != 2'b10))
+							ext_data <= ram_qB;
+						override_tile <= nt_bg_ext;
+					end
+				end else if (ppu_is_at && !chr_ex) begin
+					if (in_split && split_need_ext)
+						split_ext_data <= ram_qB;
+					else if (ppu_need_ext)
+						ext_data <= ram_qB;
+				end
+			end
 
 			if (chr_write) begin
 				if (chr_ain[13] && nt_src == 2'b10) begin
@@ -597,7 +790,10 @@ assign prg_bus_write = prg_bus_write_r;
 always @* begin
 	prg_dout_r = 8'hFF;
 	prg_bus_write_r = 1'b0;
-	if (prg_regs) begin
+	if (vector_hit) begin
+        prg_bus_write_r = 1'b1;
+        prg_dout_r = prg_ain[0] ? selected_vector[15:8] : selected_vector[7:0];
+    end else if (prg_regs) begin
 		prg_bus_write_r = 1'b1;
 		case (prg_ain[7:0])
 			8'h00: prg_dout_r = prg_mode_reg;
@@ -606,41 +802,46 @@ always @* begin
 			8'h2B: prg_dout_r = nt_ctrl[1];
 			8'h2C: prg_dout_r = nt_ctrl[2];
 			8'h2D: prg_dout_r = nt_ctrl[3];
+			8'h2F: prg_dout_r = split_ctrl;
 			8'h50: prg_dout_r = ppu_scanline;
 			8'h51: prg_dout_r = {ppu_in_hblank, ppu_in_frame, 6'b0};
 			8'h54: prg_dout_r = jitter;
 			8'h57: prg_dout_r = {parity, 7'b0};
-			8'h5F: prg_dout_r = ram_qB;
+			8'h5F: prg_dout_r = fpga_read_data;
 			8'h60: prg_dout_r = 8'h21; // platform=emulator(1), version=1
 			8'h61: prg_dout_r = {sl_irq_pending, cpu_irq_pending, 6'b0};
 			default: prg_dout_r = 8'hFF;
 		endcase
+	end else if (oam_code) begin
+        prg_bus_write_r = 1'b1;
+        prg_dout_r = oam_read_data;
 	end else if (prg_hit_fpga) begin
 		prg_bus_write_r = 1'b1;
-		prg_dout_r = ram_qB;
+		prg_dout_r = fpga_read_data;
 	end
 end
 
-reg [21:0] prg_aout_r;
+reg [24:0] prg_aout_r;
 reg        prg_allow_r;
 assign prg_aout = prg_aout_r;
 assign prg_allow = prg_allow_r;
 
 always @* begin
-	prg_aout_r  = {1'b0, prg_lin};
+	prg_aout_r  = prg_rom_address(prg_lin);
 	prg_allow_r = prg_is_hi & ~prg_write & ~prg_to_ram;
 
-	if (prg_hit_fpga || prg_hit_auto) begin
+	if (prg_hit_fpga || prg_hit_auto || oam_code || vector_hit) begin
 		prg_aout_r  = {9'b11_1100_000, prg_ain[12:0]};
-		prg_allow_r = 1'b1;
+		// Internal FPGA-RAM drives the mapper bus, not external SDRAM.
+		prg_allow_r = 1'b0;
 	end else if (prg_is_low) begin
 		case (low_src)
 			2'b00, 2'b01: begin
-				prg_aout_r  = {1'b0, low_rom};
+				prg_aout_r  = prg_rom_address(low_rom);
 				prg_allow_r = ~prg_write;
 			end
 			2'b10: begin
-				prg_aout_r  = {5'b11100, low_ram};
+				prg_aout_r  = prg_ram_address(low_ram);
 				prg_allow_r = 1'b1;
 			end
 			default: begin
@@ -649,12 +850,7 @@ always @* begin
 			end
 		endcase
 	end else if (prg_is_hi && prg_to_ram) begin
-		case (prg_bsh)
-			3'd5: prg_aout_r = {5'b11100, prg_bnum[1:0], prg_ain[14:0]};
-			3'd4: prg_aout_r = {5'b11100, prg_bnum[2:0], prg_ain[13:0]};
-			3'd3: prg_aout_r = {5'b11100, prg_bnum[3:0], prg_ain[12:0]};
-			default: prg_aout_r = {5'b11100, prg_bnum[4:0], prg_ain[11:0]};
-		endcase
+		prg_aout_r = prg_ram_address(prg_lin[17:0]);
 		prg_allow_r = 1'b1;
 	end
 end
@@ -664,7 +860,7 @@ end
 // -------------------------------------------------------------------------
 reg        has_chr_dout_r;
 reg  [7:0] chr_dout_r;
-reg [21:0] chr_aout_r;
+reg [24:0] chr_aout_r;
 reg        chr_allow_r, vram_ce_r, vram_a10_r;
 assign has_chr_dout = has_chr_dout_r;
 assign chr_dout = chr_dout_r;
@@ -674,21 +870,35 @@ assign vram_ce = vram_ce_r;
 assign vram_a10 = vram_a10_r;
 
 // BG-ext applies only during background pattern fetches (not sprites).
-wire use_bg_ext = override_tile & nt_bg_ext & ~is_sprite_fetch & ppu_in_frame;
+// Window Split uses its own ext latch / fine-Y (playfield fine-Y would slice HUD).
+// The NT control was latched during the NT fetch. Pattern-address bits
+// 11:10 select a tile, not a nametable: never re-decode NT control here.
+wire use_bg_ext = override_tile & bg_fetch;
+wire [7:0] active_ext = in_split ? split_ext_data : ext_data;
+// Pattern fine address: replace PPU fine-Y with split fine-Y inside the window.
+wire [11:0] pat_fine = in_split ? {chr_ain[11:3], split_fine_y} : chr_ain[11:0];
 
 always @* begin
 	has_chr_dout_r = 1'b0;
 	chr_dout_r = last_chr_dout;
-	chr_aout_r = {2'b10, chr_lin};
+	chr_aout_r = chr_rom_address(chr_lin);
 	chr_allow_r = 1'b0;
 	vram_ce_r = 1'b0;
 	vram_a10_r = ntb[0];
 
 	if (chr_ain[13]) begin
+		// Window Split redirects NT/AT to FPGA-RAM at absolute screen position.
+		if (in_split && (ppu_is_nt || ppu_is_at)) begin
+			has_chr_dout_r = 1'b1;
+			if (ppu_is_at && split_attr_ext)
+				chr_dout_r = {4{split_ext_data[7:6]}};
+			else
+				chr_dout_r = last_chr_dout;
+		end
 		// Fill / attr-ext MUST take priority over FPGA-RAM NT source.
 		// Previous code set attr-ext then case(nt_src==10) overwrote it with
 		// the 16x16 AT byte — File Select MENU_EXT ($81) fell back to shared attrs.
-		if (nt_fill && ppu_is_nt) begin
+		else if (nt_fill && ppu_is_nt) begin
 			has_chr_dout_r = 1'b1;
 			chr_dout_r = fill_tile;
 		end else if (nt_fill && ppu_is_at) begin
@@ -705,7 +915,7 @@ always @* begin
 					chr_allow_r = 1'b1;
 				end
 				2'b01: begin
-					chr_aout_r = {9'b11_1111_111, ntb[2:0], chr_ain[9:0]};
+					chr_aout_r = chr_ram_address({ntb, chr_ain[9:0]});
 					chr_allow_r = 1'b1;
 				end
 				2'b10: begin
@@ -713,7 +923,7 @@ always @* begin
 					chr_dout_r = last_chr_dout;
 				end
 				default: begin
-					chr_aout_r = {2'b10, ntb, chr_ain[9:0]};
+					chr_aout_r = chr_rom_address({5'b0, ntb, chr_ain[9:0]});
 				end
 			endcase
 		end
@@ -726,17 +936,25 @@ always @* begin
 				// 22-bit safe: {CHRROM, upper[1:0], ext[5:0], fine[11:0]}
 				// Old concat was 24-bit and truncated away the 2'b10 CHR-ROM tag
 				// → BG fetches hit the wrong SDRAM region (tile soup / font as BG).
-				if (use_bg_ext)
-					chr_aout_r = {2'b10, bg_ext_upper[1:0], ext_data[5:0], chr_ain[11:0]};
+				if (use_sprite_ext)
+                    chr_aout_r = chr_rom_address(sprite_ext_address);
+                else if (use_bg_ext)
+					chr_aout_r = chr_rom_address({bg_ext_upper, active_ext[5:0], pat_fine});
+				else if (in_split)
+					chr_aout_r = chr_rom_address({chr_lin[22:3], split_fine_y});
 				else
-					chr_aout_r = {2'b10, chr_lin};
+					chr_aout_r = chr_rom_address(chr_lin);
 			end
 			2'b01: begin
-				// 22-bit: CHR-RAM tag + 6-bit 4K bank + 12-bit fine
-				if (use_bg_ext)
-					chr_aout_r = {4'b1111, ext_data[5:0], chr_ain[11:0]};
+				// Up to 256KiB of independent CHR-RAM, masked by header size.
+				if (use_sprite_ext)
+                    chr_aout_r = chr_ram_address(sprite_ext_address[17:0]);
+                else if (use_bg_ext)
+					chr_aout_r = chr_ram_address({active_ext[5:0], pat_fine});
+				else if (in_split)
+					chr_aout_r = chr_ram_address({chr_lin[17:3], split_fine_y});
 				else
-					chr_aout_r = {9'b11_1111_111, chr_lin[12:0]};
+					chr_aout_r = chr_ram_address(chr_lin[17:0]);
 				chr_allow_r = 1'b1;
 			end
 			2'b10: begin
@@ -744,21 +962,56 @@ always @* begin
 				chr_dout_r = last_chr_dout;
 			end
 			default: begin
-				vram_ce_r = 1'b1;
-				vram_a10_r = chr_ain[10];
-				chr_allow_r = 1'b1;
+                if (use_sprite_ext) begin
+                    has_chr_dout_r = 1'b1;
+                    chr_dout_r = last_chr_dout;
+                end else begin
+                    vram_ce_r = 1'b1;
+                    vram_a10_r = chr_ain[10];
+                    chr_allow_r = 1'b1;
+                end
 			end
 		endcase
 	end
 end
 
+// EXP6 uses the existing VRC6 oscillators at Rainbow's contiguous aliases.
+// Oscillators keep phase while master-muted; $41AA changes only mixer gain.
+reg [2:0] audio_ctrl;
+reg [3:0] audio_volume;
+wire [3:0] pulse1, pulse2;
+wire [4:0] saw;
+wire [63:0] audio_ss;
+wire audio_write = prg_write && prg_ain >= 16'h41A0 && prg_ain <= 16'h41A8;
+wire [15:0] audio_addr = prg_ain <= 16'h41A2 ? 16'h9000 + (prg_ain - 16'h41A0) :
+    prg_ain <= 16'h41A5 ? 16'hA000 + (prg_ain - 16'h41A3) :
+    16'hB000 + (prg_ain - 16'h41A6);
+vrc6sound #(.RESET_PHASES(1)) exp6 (
+    .clk(clk), .ce(ce && !paused), .enable(enable), .wr(audio_write),
+    .addr_invert(1'b0), .addr_in(audio_addr), .din(prg_din),
+    .outSq1(pulse1), .outSq2(pulse2), .outSaw(saw),
+    .SaveStateBus_Din(SaveStateBus_Din), .SaveStateBus_Adr(SaveStateBus_Adr),
+    .SaveStateBus_wren(SaveStateBus_wren), .SaveStateBus_rst(SaveStateBus_rst),
+    .SaveStateBus_load(SaveStateBus_load), .SaveStateBus_Dout(audio_ss)
+);
+wire [5:0] exp6_sum = {2'b0, pulse1} + {2'b0, pulse2} + {1'b0, saw};
+wire [9:0] exp6_volume = exp6_sum * audio_volume;
+wire [9:0] exp6_scaled = exp6_volume / 10'd15;
+// EXP6 and EXP9 are front-/top-loader output pins for the same waveform.
+wire [5:0] exp6_level = (|audio_ctrl[1:0]) ? exp6_scaled[5:0] : 6'd0;
+// Same full-volume gain as the core's VRC6 mapper mixer, with overflow headroom.
+wire [15:0] exp6_audio = {exp6_level, exp6_level, exp6_level[5:2]};
+wire [16:0] mixed_audio = {1'b0, audio_in} +
+    {2'b0, exp6_audio[15:1]} + {4'b0, exp6_audio[15:3]};
+
 // -------------------------------------------------------------------------
 // Savestate
 // -------------------------------------------------------------------------
-wire [63:0] SS_MAP1, SS_MAP2, SS_MAP3, SS_MAP4, SS_MAP5, SS_MAP6, SS_MAP7, SS_MAP8;
+wire [63:0] SS_MAP1, SS_MAP2, SS_MAP3, SS_MAP4, SS_MAP5, SS_MAP6, SS_MAP7, SS_MAP8, SS_MAP9;
 wire [63:0] SS_MAP1_BACK, SS_MAP2_BACK, SS_MAP3_BACK, SS_MAP4_BACK;
-wire [63:0] SS_MAP5_BACK, SS_MAP6_BACK, SS_MAP7_BACK, SS_MAP8_BACK;
-wire [63:0] SS_w[0:7];
+wire [63:0] SS_MAP5_BACK, SS_MAP6_BACK, SS_MAP7_BACK, SS_MAP8_BACK, SS_MAP9_BACK;
+wire [63:0] SS_MAP10, SS_MAP11, SS_MAP10_BACK, SS_MAP11_BACK;
+wire [63:0] SS_w[0:10];
 
 assign SS_MAP1_BACK[7:0]   = prg_mode_reg;
 assign SS_MAP1_BACK[8]     = fpga_bank;
@@ -791,6 +1044,23 @@ assign SS_MAP8_BACK = {
 	chr_hi[7][4:0], chr_hi[6][4:0], chr_hi[5][4:0], chr_hi[4][4:0],
 	chr_hi[3][4:0], chr_hi[2][4:0], chr_hi[1][4:0], chr_hi[0][4:0]
 };
+assign SS_MAP9_BACK = {
+	1'b0,
+	split_screen_y,
+	split_sy,
+	split_sx,
+	split_y1,
+	split_y0,
+	split_x1,
+	split_x0,
+	split_ctrl,
+	split_bank
+};
+
+assign SS_MAP10_BACK = {split_tile_addr, ext_tile_addr, split_ext_data,
+    ext_data, fpga_auto_inc, fpga_auto_addr, audio_volume, audio_ctrl};
+assign SS_MAP11_BACK = {23'b0, fpga_read_data, jitter, last_chr_read, last_chr_dout,
+    chr_hi[15][4:0], chr_hi[14][4:0], chr_hi[13][4:0], chr_hi[12][4]};
 
 eReg_SavestateV #(SSREG_INDEX_MAP1, 64'h0) i1 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, SS_w[0], SS_MAP1_BACK, SS_MAP1);
 eReg_SavestateV #(SSREG_INDEX_MAP2, 64'h0) i2 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, SS_w[1], SS_MAP2_BACK, SS_MAP2);
@@ -800,7 +1070,33 @@ eReg_SavestateV #(SSREG_INDEX_MAP5, 64'h0) i5 (clk, SaveStateBus_Din, SaveStateB
 eReg_SavestateV #(SSREG_INDEX_MAP6, 64'h0) i6 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, SS_w[5], SS_MAP6_BACK, SS_MAP6);
 eReg_SavestateV #(10'd38, 64'h0) i7 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, SS_w[6], SS_MAP7_BACK, SS_MAP7);
 eReg_SavestateV #(10'd39, 64'h0) i8 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, SS_w[7], SS_MAP8_BACK, SS_MAP8);
+eReg_SavestateV #(10'd40, 64'h0) i9 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, SS_w[8], SS_MAP9_BACK, SS_MAP9);
 
-assign SaveStateBus_Dout = enable ? (SS_w[0]|SS_w[1]|SS_w[2]|SS_w[3]|SS_w[4]|SS_w[5]|SS_w[6]|SS_w[7]) : 64'h0;
+eReg_SavestateV #(10'd41, 64'h78) i10 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, SS_w[9], SS_MAP10_BACK, SS_MAP10);
+eReg_SavestateV #(10'd42, 64'h0) i11 (clk, SaveStateBus_Din, SaveStateBus_Adr, SaveStateBus_wren, SaveStateBus_rst, SS_w[10], SS_MAP11_BACK, SS_MAP11);
+
+wire [63:0] SS_MAP12, SS_MAP12_BACK, SS_MAP12_OUT;
+genvar ci;
+generate for(ci=0;ci<16;ci=ci+1) begin: chr_high_save
+    assign SS_MAP12_BACK[ci] = chr_hi[ci][5];
+end endgenerate
+assign SS_MAP12_BACK[63:16] = {31'b0, oam_read_data, oam_limit, oam_page};
+eReg_SavestateV #(10'd43, 64'h1FF0000) i12 (clk, SaveStateBus_Din, SaveStateBus_Adr,
+    SaveStateBus_wren, SaveStateBus_rst, SS_MAP12_OUT, SS_MAP12_BACK, SS_MAP12);
+wire [63:0] SS_MAP13, SS_MAP13_OUT;
+wire [63:0] SS_MAP13_BACK = {19'b0, sprite_ext_bank, irq_vector, nmi_vector, vector_enable, oam_locked, oam_kind, oam_ext_page};
+eReg_SavestateV #(10'd44, 64'h0) i13 (clk, SaveStateBus_Din, SaveStateBus_Adr,
+    SaveStateBus_wren, SaveStateBus_rst, SS_MAP13_OUT, SS_MAP13_BACK, SS_MAP13);
+wire [63:0] SS_SPR[0:7], SS_SPR_OUT[0:7], SS_SPR_BACK[0:7];
+genvar si,sb;
+generate for(si=0;si<8;si=si+1) begin: sprite_save
+    for(sb=0;sb<8;sb=sb+1) begin: byte_save
+        assign SS_SPR_BACK[si][sb*8 +: 8] = sprite_ext[si*8+sb];
+    end
+    eReg_SavestateV #(10'd54+si, 64'h0) ss (clk, SaveStateBus_Din, SaveStateBus_Adr,
+        SaveStateBus_wren, SaveStateBus_rst, SS_SPR_OUT[si], SS_SPR_BACK[si], SS_SPR[si]);
+end endgenerate
+assign SaveStateBus_Dout = enable ? (SS_w[0]|SS_w[1]|SS_w[2]|SS_w[3]|SS_w[4]|SS_w[5]|SS_w[6]|SS_w[7]|SS_w[8]|SS_w[9]|SS_w[10]|SS_MAP12_OUT|SS_MAP13_OUT|audio_ss|
+    SS_SPR_OUT[0]|SS_SPR_OUT[1]|SS_SPR_OUT[2]|SS_SPR_OUT[3]|SS_SPR_OUT[4]|SS_SPR_OUT[5]|SS_SPR_OUT[6]|SS_SPR_OUT[7]) : 64'h0;
 
 endmodule

@@ -1,0 +1,40 @@
+/build/rtl/t65/T65_ALU.vhd:231:54:warning: comparing non-numeric vector is unexpected
+          if (BusA(3 downto 0) and BusB(3 downto 0)) > "0100" then
+                                                     ^
+/build/rtl/t65/T65_ALU.vhd:234:54:warning: comparing non-numeric vector is unexpected
+          if (BusA(7 downto 4) and BusB(7 downto 4)) > "0100" then
+                                                     ^
+PASS T65 ROM test 0 mode0 window80
+PASS T65 ROM test 1 mode1 window80
+PASS T65 ROM test 2 mode1 windowc0
+PASS T65 ROM test 3 mode2 window80
+PASS T65 ROM test 4 mode2 windowc0
+PASS T65 ROM test 5 mode2 windowe0
+PASS T65 ROM test 6 mode3 window80
+PASS T65 ROM test 7 mode3 windowa0
+PASS T65 ROM test 8 mode3 windowc0
+PASS T65 ROM test 9 mode3 windowe0
+PASS T65 ROM test 10 mode4 window80
+PASS T65 ROM test 11 mode4 window90
+PASS T65 ROM test 12 mode4 windowa0
+PASS T65 ROM test 13 mode4 windowb0
+PASS T65 ROM test 14 mode4 windowc0
+PASS T65 ROM test 15 mode4 windowd0
+PASS T65 ROM test 16 mode4 windowe0
+PASS T65 ROM test 17 mode4 windowf0
+PASS T65 ROM test 18 mode0 window60
+PASS T65 ROM test 19 mode128 window60
+PASS T65 ROM test 20 mode128 window70
+PASS executable OAM page 0, limit 0
+PASS executable OAM page 1, limit 16
+PASS executable OAM page 2, limit 63
+PASS executable OAM page 3, limit 63
+PASS executable OAM page 4, limit 63
+PASS executable OAM page 5, limit 63
+PASS executable OAM page 6, limit 63
+PASS executable OAM page 7, limit 63
+- tests/mapper682/tb_mapper682_cpu.sv:110: Verilog $finish
+PASS original T65 IRQ handler mode0 writes6 mainline alive
+PASS original T65 IRQ handler mode1 writes6 mainline alive
+PASS original T65 IRQ handler mode2 writes6 mainline alive
+- tests/mapper682/tb_mapper682_irq_cpu.sv:132: Verilog $finish

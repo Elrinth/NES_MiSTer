@@ -1,0 +1,7 @@
+PRG diagnostic based on the original 8192 CHR-ROM test.
+
+Run PRG ROM, then photograph both result pages. P means passed.
+Fbbbb/rrrr means failure at requested bank bbbb; rrrr is the two-byte bank signature read back. Values are hexadecimal.
+If both bank signatures match, the ROM marker check may be the failure instead.
+Only reporting is patched; bank selection and comparisons are unchanged. The CHR failure reports are not extended by this patch.
+Original ROM is unchanged.

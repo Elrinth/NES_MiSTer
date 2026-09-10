@@ -1,0 +1,2 @@
+PASS CPU IRQ -> early scanline IRQ with old handler -> NMI acknowledgement -> running PPU IRQ test
+- tests/mapper682/tb_mapper682_irq_transition.sv:148: Verilog $finish

@@ -1,0 +1,2 @@
+PASS: real PPU, 3 frames, 97944 fetch/latch assertions, extra sprites off/on
+- tests/mapper682/tb_mapper682_ppu.sv:110: Verilog $finish

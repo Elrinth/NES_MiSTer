@@ -1,0 +1,119 @@
+[
+  {
+    "file": "rnbw-mapper-test-1024-chr-ram.nes",
+    "sha256": "d786008ad10b51506736f6168967eb28efa5e49f08bf405af71d6500fde62591",
+    "prg_bytes": 1048576,
+    "chr_bytes": 0,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 32768,
+    "header": "4e45531a4000a0a80200090900000000"
+  },
+  {
+    "file": "rnbw-mapper-test-1024-chr-rom-ram.nes",
+    "sha256": "c0baad1e9fe9003fab7ccd78ade414563b60e2bd10c870714958f7f9e195336d",
+    "prg_bytes": 1048576,
+    "chr_bytes": 1048576,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 32768,
+    "header": "4e45531a4080a0a80200090900000000"
+  },
+  {
+    "file": "rnbw-mapper-test-1024-chr-rom.nes",
+    "sha256": "845fc2800a6bc37be2379ccfc0d2595de677ed28bfffcb1102ab28eabfa6aa89",
+    "prg_bytes": 1048576,
+    "chr_bytes": 1048576,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 0,
+    "header": "4e45531a4080a0a80200090000000000"
+  },
+  {
+    "file": "rnbw-mapper-test-128-chr-ram.nes",
+    "sha256": "f2b0d038affe082c90be154eb3c97be574c7f85ad1f2d84bf201f21f25d5e269",
+    "prg_bytes": 131072,
+    "chr_bytes": 0,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 32768,
+    "header": "4e45531a0800a0a80200090900000000"
+  },
+  {
+    "file": "rnbw-mapper-test-128-chr-rom-ram.nes",
+    "sha256": "45629c3f9fb7728574d7fa1bad4df09bb4b5db6614c83e4764f0db689e399598",
+    "prg_bytes": 131072,
+    "chr_bytes": 131072,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 32768,
+    "header": "4e45531a0810a0a80200090900000000"
+  },
+  {
+    "file": "rnbw-mapper-test-128-chr-rom.nes",
+    "sha256": "b444417a620cb58327cd316e4a3047d5ab1d7c59987cdac585edb0d5c0b532d0",
+    "prg_bytes": 131072,
+    "chr_bytes": 131072,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 0,
+    "header": "4e45531a0810a0a80200090000000000"
+  },
+  {
+    "file": "rnbw-mapper-test-2048-chr-rom.nes",
+    "sha256": "288494adf91b5dc47be3b7a10196314bb5a3ced38a9b2fdbbce7aecb9cfdf0f0",
+    "prg_bytes": 2097152,
+    "chr_bytes": 2097152,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 0,
+    "header": "4e45531a8000a0a80210090000000000"
+  },
+  {
+    "file": "rnbw-mapper-test-256-chr-ram.nes",
+    "sha256": "e99d92af3ef87ff8d3d74ac9c3bda3fbff2ec7a4a9921c7dbca26d1d6cdfcefe",
+    "prg_bytes": 262144,
+    "chr_bytes": 0,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 32768,
+    "header": "4e45531a1000a0a80200090900000000"
+  },
+  {
+    "file": "rnbw-mapper-test-4096-chr-rom-ram.nes",
+    "sha256": "22c17bcdc3d412a9ac643a9a9b0aa352c788d230890e1f159c7592c14ab2a710",
+    "prg_bytes": 4194304,
+    "chr_bytes": 4194304,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 32768,
+    "header": "4e45531a0000a0a80221090900000000"
+  },
+  {
+    "file": "rnbw-mapper-test-512-chr-ram.nes",
+    "sha256": "25e55b007e3abf4763e3d967a1a7494468b800073519a2b1ae492097417f3994",
+    "prg_bytes": 524288,
+    "chr_bytes": 0,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 32768,
+    "header": "4e45531a2000a0a80200090900000000"
+  },
+  {
+    "file": "rnbw-mapper-test-8192-chr-rom-ram.nes",
+    "sha256": "055b52b46fc8fa24abf710ba579b248c15f290cfdf75993dba36c009346ee86f",
+    "prg_bytes": 8388608,
+    "chr_bytes": 8388608,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 32768,
+    "header": "4e45531a0000a0a80242090900000000"
+  },
+  {
+    "file": "rnbw-mapper-test-8192-chr-rom.nes",
+    "sha256": "3dbea104310cc758c3e15786c983c65c575bff7b854844ba2d9c168dd6de8ef6",
+    "prg_bytes": 8388608,
+    "chr_bytes": 8388608,
+    "prg_ram_bytes": 32768,
+    "chr_ram_bytes": 0,
+    "header": "4e45531a0000a0a80242090000000000"
+  },
+  {
+    "file": "sotn.nes",
+    "sha256": "2452a2e43ecf2ef733182cc39a5ec60c9b4d5c220a9afc3e7f5fa4127521c16a",
+    "prg_bytes": 1048576,
+    "chr_bytes": 1048576,
+    "prg_ram_bytes": 64,
+    "chr_ram_bytes": 0,
+    "header": "4e45531a4080a3a80200700000000000"
+  }
+]

@@ -1,0 +1,3 @@
+PASS original T65 IRQ handler mode0 writes6 mainline alive
+PASS original T65 IRQ handler mode1 writes6 mainline alive
+PASS original T65 IRQ handler mode2 writes6 mainline alive

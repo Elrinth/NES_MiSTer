@@ -1,0 +1,7 @@
+# Regenerate from the user's original test ROM using prepare_bank_signatures.py.
+bank_vectors.hex
+prg_signatures.hex
+chr_signatures.hex
+prg_test_code.hex
+prg_test_table.hex
+prg_first32k.hex

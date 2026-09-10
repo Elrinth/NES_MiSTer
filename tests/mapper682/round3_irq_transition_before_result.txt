@@ -1,0 +1,3 @@
+[15012360000] %Fatal: tb_mapper682_irq_transition.sv:146: Assertion failed in TOP.tb_mapper682_irq_transition: Mainline stopped
+%Error: tests/mapper682/tb_mapper682_irq_transition.sv:146: Verilog $stop
+Aborting...
