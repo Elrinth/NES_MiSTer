@@ -4,6 +4,8 @@ This is an FPGA implementation of the NES/Famicom based on [FPGANES](https://git
 
 ## Rainbow mapper 682 fork
 
+This fork's Rainbow mapper support was developed to make our [Castlevania: Symphony of the Night NES port](https://sotn.thefirstboss.com) playable on MiSTer. Visit the project to play the NES port in your browser and follow its development.
+
 - [Download our tested MiSTer RBF release](https://github.com/Elrinth/NES_MiSTer/releases/tag/mapper682-20260910) — includes matching source, checksums and license notices.
 - [Rainbow development branch and documentation](https://github.com/Elrinth/NES_MiSTer/tree/mapper-682-rainbow)
 - [Everdrive N8 Pro mapper — Broke Studio](https://brokestudio.fr/rainbow/everdrive)
