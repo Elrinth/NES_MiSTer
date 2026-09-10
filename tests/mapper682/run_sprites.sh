@@ -8,3 +8,5 @@ verilator --binary --timing -Wno-fatal -Wno-PROCASSWIRE -Wno-BLKANDNBLK \
  rtl/mappers/VRC.sv rtl/mappers/Mapper682.sv tests/mapper682/tb_mapper682_sprites.sv \
  > "$out.log" 2>&1
 "$out/Vtb_mapper682_sprites"
+
+"$out/Vtb_mapper682_sprites" +extra=0

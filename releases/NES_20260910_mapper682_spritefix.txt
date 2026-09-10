@@ -1,0 +1,16 @@
+Rainbow mapper 682 for MiSTer — 2026-09-10
+
+Use NES_20260910_mapper682_spritefix.rbf. This is the hardware-tested spritefix
+build, with VRC6 audio and Rainbow banking, scrolling, IRQ and extended services.
+Both sprite bitplanes now use the correct OAM bank, including the last fetch.
+
+Validation: 160 extended sprite fetch checks with Extra Sprites on and 80 off;
+PPU/IRQ and integrated CPU/PPU/APU/DMA regressions; Quartus timing passes
+(minimum slack +0.175 ns). User hardware testing confirmed expected results,
+including original Vector Redirect. Physical hardware coverage is not exhaustive.
+
+Reload the original test ROM before CHR RAM after Window Split: Window Split
+overwrites RAM signatures used by the later test. This is a test interaction.
+
+See BUILDING_RAINBOW.md, COPYING, THIRD_PARTY_NOTICES.txt and DISTRIBUTION.md.
+The accompanying source archive identifies the exact release commit.

@@ -1,0 +1,48 @@
+PASS integrated vector test scenario=0 region=0 phase=0 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=1 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=2 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=3 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=4 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=5 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=6 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=7 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=8 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=9 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=10 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=11 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=0 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=1 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=2 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=3 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=4 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=5 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=6 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=7 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=8 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=9 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=10 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish
+PASS integrated vector test scenario=0 region=0 phase=11 dejitter=1
+- tests/mapper682/tb_mapper682_board.sv:72: Verilog $finish

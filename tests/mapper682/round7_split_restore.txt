@@ -1,0 +1,3 @@
+Window Split changed 1920 CHR RAM bytes; restore=1
+PASS original CHR RAM 31 cases
+- tests/mapper682/tb_mapper682_board.sv:92: Verilog $finish

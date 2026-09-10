@@ -1,0 +1,4 @@
+[73481150000] %Fatal: tb_mapper682_board.sv:80: Assertion failed in TOP.tb_board: CHR RAM failure bank=0001 mode=00
+%Error: tests/mapper682/tb_mapper682_board.sv:80: Verilog $stop
+Aborting...
+Aborted

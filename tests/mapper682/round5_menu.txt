@@ -1,0 +1,8 @@
+PASS integrated vector test scenario=0 region=0 phase=0 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:74: Verilog $finish
+PASS integrated vector test scenario=1 region=0 phase=0 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:74: Verilog $finish
+PASS integrated vector test scenario=0 region=1 phase=0 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:74: Verilog $finish
+PASS integrated vector test scenario=0 region=2 phase=0 dejitter=0
+- tests/mapper682/tb_mapper682_board.sv:74: Verilog $finish

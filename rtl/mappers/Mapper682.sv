@@ -140,7 +140,7 @@ reg [7:0] nt_bank[0:3], nt_ctrl[0:3];
 reg [7:0] chr_hi[0:15], chr_lo[0:15];
 reg [7:0] sprite_ext[0:63];
 reg [2:0] sprite_ext_bank;
-wire use_sprite_ext = chr_mode_reg[5] && ppu_in_frame && ppu_dot >= 256 && ppu_dot < 320;
+wire use_sprite_ext = chr_mode_reg[5] && ppu_in_frame && ppu_dot >= 257 && ppu_dot <= 320;
 wire [22:0] sprite_ext_address = sprite_size_16 ?
     {sprite_ext_bank[1:0], sprite_ext[sprite_oam_index], chr_ain[12:0]} :
     {sprite_ext_bank, sprite_ext[sprite_oam_index], chr_ain[11:0]};

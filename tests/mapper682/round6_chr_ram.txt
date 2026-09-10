@@ -1,0 +1,2 @@
+PASS original CHR RAM 31 cases
+- tests/mapper682/tb_mapper682_board.sv:78: Verilog $finish

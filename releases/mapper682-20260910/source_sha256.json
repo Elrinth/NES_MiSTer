@@ -1,0 +1,7 @@
+{
+  "rtl/ppu.sv": "bfd0599f210f5ea5d7a934d1b7ef20f1172a2169cae883ac656e705a9647807d",
+  "rtl/mappers/Mapper682.sv": "5e4d85b1b6e669ffe385e8ed31a793e6b614145a13af6d8801f6ea8ee4550d17",
+  "rtl/cart.sv": "85d80d027e1936a1b964c57d042aef608cd0b3e8f7f805255dcde2c4695775f4",
+  "rtl/nes.v": "0469c6fbfb07d86d06773e03fc26a73cf665ce29e2d2519b49fe9c118e3dd886",
+  "NES.qsf": "1ce0df088f5ffae6c9b5e3d0cb20b1037dfef8825f51b8cf8da4ca8c1f4aa3b3"
+}

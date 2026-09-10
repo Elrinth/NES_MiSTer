@@ -67,6 +67,7 @@ module tb_mapper682_sprites;
   .Savestate_OAMWriteData(8'd0)
  );
 
+ integer extra_option=1;
  integer i,frames=0,checks=0,slot,index,bank,offset;
  reg [24:0] expected;
  initial begin
@@ -83,7 +84,8 @@ module tb_mapper682_sprites;
    ppu.spriteeval.oam[i*4+3]=i*4;
    dut.sprite_ext[i]=i*7;
   end
-  extra_enabled=1;run_ppu=1;
+  if($value$plusargs("extra=%d",extra_option))begin end
+  extra_enabled=extra_option!=0;run_ppu=1;
  end
  always @(posedge clk)if(ppu_ce)begin
   if(line==241 && dot==0)begin
@@ -93,17 +95,20 @@ module tb_mapper682_sprites;
    if(frames==4)dut.chr_mode_reg='ha3;
    if(frames==5)dut.chr_mode_reg='he3;
    if(frames==6)begin
-    if(checks<90)$fatal(1,"Insufficient sprite fetch coverage: %0d",checks);
+    if(checks!=(extra_enabled?160:80))$fatal(1,"Insufficient sprite fetch coverage: %0d",checks);
     $display("PASS %0d real PPU sprite fetches: skipped OAM entries, normal/extra sprites, 8x8/8x16, ROM/RAM",checks);
     $finish;
    end
   end
-  if(frames>0 && line==42 && dot>=257 && dot<320 && ppu_read && !ppu_addr[13])begin
+  if(frames>0 && line==42 && dot>=257 && dot<=320 && ppu_read && !ppu_addr[13])begin
    // The existing core's optional extra-sprite evaluator begins after seven
    // matches (its three-bit spr_counter saturates at seven). Follow the
    // actual evaluated sprite, including its duplicated eighth sprite.
-   slot=(dot-256)/8;index=slot*2+1+(extra?14:0);bank=(index*7)&255;
+   slot=(dot-257)/8;index=slot*2+1+(extra?14:0);bank=(index*7)&255;
    if((extra?origin_ex:origin)!==index)$fatal(1,"Wrong sprite origin: slot%0d extra%b got%0d expected%0d",slot,extra,extra?origin_ex:origin,index);
+   // The sprite's tile number was initialized to its original OAM index.
+   // Check this independently of the mapper index to catch bitplane bank slips.
+   if(!extra && ppu.address_gen.temp_tile!==index[7:0])$fatal(1,"Tile/origin mismatch dot%0d tile%0d index%0d",dot,ppu.address_gen.temp_tile,index);
    offset=(2*(large_sprite?2097152:1048576)+bank*(large_sprite?8192:4096)+(ppu_addr&(large_sprite?8191:4095)))&'h7fffff;
    expected=frames==3?'h300000+(offset&'h7fff):'h1000000+offset;
    if(frames<4)begin

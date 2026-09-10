@@ -77,3 +77,57 @@ The user confirmed PRG passes in both diagnostic ROM variants using `testfix`. B
 The user then isolated the freeze to **CPU Cycle IRQ -> PPU Scanline IRQ**. CPU Cycle IRQ displays the expected value 5. The PPU test enables IRQs before replacing the previous CPU test's handler; that handler cannot acknowledge a PPU interrupt. Mesen clears pending scanline IRQ on NMI vector reads. `testfix` did not, allowing a persistent interrupt to starve the mainline. This revision adds that acknowledgement.
 
 `run_cpu.sh` includes two transition tests. `irq_sequence` executes the original CPU count loop and handler, verifies result 5 and disabled CPU IRQ, then runs the PPU handlers. `irq_transition` additionally reproduces the early PPU IRQ with the old handler and the next NMI. The pre-services mapper fails this regression with **Mainline stopped**; the new mapper passes. The test uses real T65 execution, synthetic raster/NMI timing, and a minimal NMI handler in place of the UI/audio handler. It is a targeted reproduction rather than a complete board simulation. Retest the exact menu sequence on hardware.
+
+
+## Sprite bitplane correction (round 4)
+
+The services build selected sprite banks with `cycle[5:3]`. Its actual sprite
+fetch slots are 257..264 through 313..320. At the high-plane read the index
+therefore advanced to the next sprite, and dot 320 fell outside the mapper's
+extended-sprite range. Use `(cycle-1)[5:3]` and include dot 320.
+
+`run_sprites.sh` now checks both planes against the independently initialized
+OAM tile numbers, includes the eighth sprite's final fetch, and runs with Extra
+Sprites both on and off. `round4_sprites_before.txt` demonstrates the old
+implementation failing. This corrects an expectation error in the earlier test.
+
+IRQ vector redirection still needs hardware diagnosis. `run_cpu.sh` now runs
+original Vector Redirect code. `run_board.sh` also boots the original ROM code
+with production NES CPU, PPU, APU and DMA datapaths. It checks cold NTSC,
+CPU Cycle IRQ then Vector Redirect, PAL and Dendy. Simulator adapters omit
+inactive save/load controllers and other mappers; external RAM is synchronous
+rather than a physical SDRAM model. These pass locally and do not reproduce
+the user's freeze. No IRQ correction is claimed in the spritefix release.
+
+`make_vector_watchdog.py ORIGINAL_ROM_RAM.nes` (Python with py65 installed)
+creates a separate instrumented diagnostic ROM. In its Vector Redirect test,
+D:1 means entry, D:2 handler entry, D:3 acknowledgement, and D:4 mainline
+return. I is the pending status (bit 0 CPU, bit 1 scanline). The marker is
+updated by NMI. Instrumentation changes instruction timing; it is not a
+replacement for the original test suite and must not be presented as a fix.
+
+`run_board.sh --sweep` additionally checks twelve reset clock phases with
+dejitter disabled and enabled (24 passing cases; round4_phase_sweep.txt).
+
+Watchdog v2 guards NMI PPU writes while the test marker is zero or cached PPUMASK rendering bits are clear. The first watchdog incorrectly interrupted menu VRAM uploads; do not use it. Thirty guard cases and the integrated vector simulation pass for v2.
+
+## Window Split then CHR RAM (hardware follow-up)
+
+The user reports the spritefix build passes the earlier tests, including Vector
+Redirect. CHR RAM passes after reload but fails after Window Split.
+
+The integrated original-ROM simulation reproduces that sequence. Window Split
+maps nametables 2/3 to CHR RAM (`$412C/$412D=$40`, `$4128/$4129=8/9`) and
+writes its sample screen there through `$2007`. This changes 1,920 CHR RAM bytes,
+including bank-signature data subsequently checked by the CHR RAM test.
+The first failing case is mode 0, bank 1. This is destructive test interaction,
+not evidence of broken CHR RAM bank mapping.
+
+`run_board.sh +scenario=2`: all 31 CHR RAM cases pass after reset.
+`run_board.sh +scenario=3`: runs Window Split, its exit/menu path, then CHR RAM;
+expected reproduction failure (bank 1, mode 0).
+`run_board.sh +scenario=4`: same sequence, restoring ONLY the 32 KiB CHR RAM
+snapshot before leaving Window Split. Mapper state is left unchanged; all 31
+cases pass. This restoration is a simulation control, not a core modification.
+Reload the original ROM before running its destructive memory tests.
+See round7_split_chr_ram.txt and round7_split_restore.txt.

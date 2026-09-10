@@ -1536,8 +1536,11 @@ wire [3:0] bg_pixel = {bg_pixel_noblank[3:2], show_bg_on_pixel ? bg_pixel_noblan
 
 wire [31:0] oam_bus_ex;
 wire [95:0] sprite_origins;
-assign sprite_oam_index = sprite_origins[cycle[5:3]*6 +: 6];
-assign sprite_oam_index_ex = sprite_origins[(8+cycle[5:3])*6 +: 6];
+// Fetch slots span dots 257..264, 265..272, ... 313..320.
+// Keep both bitplanes on the same OAM entry, including the final dot.
+wire [8:0] sprite_fetch_dot = cycle - 9'd1;
+assign sprite_oam_index = sprite_origins[sprite_fetch_dot[5:3]*6 +: 6];
+assign sprite_oam_index_ex = sprite_origins[(8+sprite_fetch_dot[5:3])*6 +: 6];
 assign sprite_size_16 = obj_size1;
 wire masked_sprites;
 

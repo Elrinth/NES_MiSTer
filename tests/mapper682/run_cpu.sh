@@ -32,7 +32,7 @@ verilator --binary --timing -Wno-fatal -Wno-BLKANDNBLK \
  rtl/mappers/VRC.sv rtl/mappers/Mapper682.sv tests/mapper682/tb_mapper682_services.sv \
  > "$out/services_compile.log" 2>&1
 "$out/services_obj/Vtb_mapper682_services"
-for bench in irq_sequence irq_transition; do
+for bench in irq_sequence irq_transition vector_irq vector_full; do
  verilator --binary --timing -Wno-fatal -Wno-BLKANDNBLK \
   --top-module "tb_mapper682_$bench" --Mdir "$out/${bench}_obj" -j 4 \
   rtl/regs_savestates.sv tests/mapper682/models.sv "$out/ghdl/T65.v" \

@@ -1,0 +1,4 @@
+[4157235000] %Fatal: tb_mapper682_sprites.sv:106: Assertion failed in TOP.tb_mapper682_sprites: Wrong sprite origin: slot0 extra0 got3 expected1
+%Error: tests/mapper682/tb_mapper682_sprites.sv:106: Verilog $stop
+Aborting...
+Aborted
