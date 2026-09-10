@@ -1360,8 +1360,17 @@ wire is_nes20 = (ines[7][3:2] == 2'b10);
 wire is_nes20_prg = (is_nes20 && (ines[9][3:0] == 4'hF));
 wire is_nes20_chr = (is_nes20 && (ines[9][7:4] == 4'hF));
 
-// NES 2.0 PRG & CHR sizes
-reg [21:0] prg_size2, chr_size2, chr_ram_size;
+// NES 2.0 non-exponent sizes use MSB nibble from ines[9] + LSB from ines[4]/[5].
+// (Old code only used LSB unless nibble==0xF exponent form, so 4MB headers with
+// ines[4]/[5]==0 parsed as size 0.)
+wire [11:0] prg_pages = is_nes20 ? {ines[9][3:0], ines[4]} : {4'b0, ines[4]};
+wire [11:0] chr_pages = is_nes20 ? {ines[9][7:4], ines[5]} : {4'b0, ines[5]};
+
+// Byte sizes; [24:0] matches bytes_left / mem_addr. NOTE: loader maps CHR at
+// SDRAM 0x200000, so PRG+CHR together are hard-capped ~2MB PRG + ~1–2MB CHR in
+// the current address map. Correct header parse still matters for 4MB PRG tests
+// (and CHR-RAM variants); full 4+4MB simultaneous ROM needs a layout change.
+reg [24:0] prg_size2, chr_size2, chr_ram_size;
 
 function [9:0] mask;
 	input [10:0] size;
@@ -1373,32 +1382,33 @@ endfunction
 
 always @(posedge clk) begin
 	// PRG
-	// ines[4][1:0]: Multiplier, actual value is MM*2+1 (1,3,5,7)
-	// ines[4][7:2]: Exponent (2^E), 0-63
-	prg_size2 <= is_nes20_prg ? ({19'b0, ines[4][1:0], 1'b1} << ines[4][7:2]) : {prgrom, 14'b0};
-	prg_mask <= mask(prg_size2[21:11]);
+	// Exponent form (ines[9] low == 0xF): ines[4][1:0] multiplier MM*2+1, [7:2] exp
+	// Otherwise: prg_pages * 16KB (NES 2.0 includes ines[9] MSB nibble)
+	prg_size2 <= is_nes20_prg ? ({19'b0, ines[4][1:0], 1'b1} << ines[4][7:2]) : {prg_pages, 14'b0};
+	// Saturate mask input for >2MB so bit20 stays enabled (cart masks [20:0])
+	prg_mask <= mask(|prg_size2[24:22] ? 11'h7FF : prg_size2[21:11]);
 
 	// CHR
-	chr_size2 <= is_nes20_chr ? ({19'b0, ines[5][1:0], 1'b1} << ines[5][7:2]) : {1'b0, chrrom, 13'b0};
-	chr_ram_size <= is_nes20 ? (22'd64 << chrram) : 22'h2000;
-	chr_mask <= mask(|chr_size2 ? chr_size2[21:11] : chr_ram_size[21:11]);
+	chr_size2 <= is_nes20_chr ? ({19'b0, ines[5][1:0], 1'b1} << ines[5][7:2]) : {chr_pages, 13'b0};
+	chr_ram_size <= is_nes20 ? (25'd64 << chrram) : 25'h2000;
+	chr_mask <= mask(|chr_size2 ? (|chr_size2[24:22] ? 11'h7FF : chr_size2[21:11]) : chr_ram_size[21:11]);
 end
 
-wire [2:0] prg_size = prgrom <= 1  ? 3'd0 :		// 16KB
-	prgrom <= 2  ? 3'd1 : 		// 32KB
-	prgrom <= 4  ? 3'd2 : 		// 64KB
-	prgrom <= 8  ? 3'd3 : 		// 128KB
-	prgrom <= 16 ? 3'd4 : 		// 256KB
-	prgrom <= 32 ? 3'd5 : 		// 512KB
-	prgrom <= 64 ? 3'd6 : 3'd7;// 1MB/2MB
+wire [2:0] prg_size = prg_pages <= 1  ? 3'd0 :		// 16KB
+	prg_pages <= 2  ? 3'd1 : 		// 32KB
+	prg_pages <= 4  ? 3'd2 : 		// 64KB
+	prg_pages <= 8  ? 3'd3 : 		// 128KB
+	prg_pages <= 16 ? 3'd4 : 		// 256KB
+	prg_pages <= 32 ? 3'd5 : 		// 512KB
+	prg_pages <= 64 ? 3'd6 : 3'd7;// 1MB/2MB/4MB
 
-wire [2:0] chr_size = chrrom <= 1  ? 3'd0 : 		// 8KB
-	chrrom <= 2  ? 3'd1 : 		// 16KB
-	chrrom <= 4  ? 3'd2 : 		// 32KB
-	chrrom <= 8  ? 3'd3 : 		// 64KB
-	chrrom <= 16 ? 3'd4 : 		// 128KB
-	chrrom <= 32 ? 3'd5 : 		// 256KB
-	chrrom <= 64 ? 3'd6 : 3'd7;// 512KB/1MB
+wire [2:0] chr_size = chr_pages <= 1  ? 3'd0 : 		// 8KB
+	chr_pages <= 2  ? 3'd1 : 		// 16KB
+	chr_pages <= 4  ? 3'd2 : 		// 32KB
+	chr_pages <= 8  ? 3'd3 : 		// 64KB
+	chr_pages <= 16 ? 3'd4 : 		// 128KB
+	chr_pages <= 32 ? 3'd5 : 		// 256KB
+	chr_pages <= 64 ? 3'd6 : 3'd7;// 512KB/1MB/4MB
 
 // differentiate dirty iNES1.0 headers from proper iNES2.0 ones
 wire is_dirty = !is_nes20 && ((ines[9][7:1] != 0)
