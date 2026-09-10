@@ -2,6 +2,18 @@
 
 This is an FPGA implementation of the NES/Famicom based on [FPGANES](https://github.com/strigeus/fpganes) by Ludvig Strigeus and ported to MiSTer.
 
+## Rainbow mapper 682 fork
+
+- [Download our tested MiSTer RBF release](https://github.com/Elrinth/NES_MiSTer/releases/tag/mapper682-20260910) — includes matching source, checksums and license notices.
+- [Rainbow development branch and documentation](https://github.com/Elrinth/NES_MiSTer/tree/mapper-682-rainbow)
+- [Everdrive N8 Pro mapper — Broke Studio](https://brokestudio.fr/rainbow/everdrive)
+- [Rainbow-compatible Mesen2 and other desktop emulators — Broke Studio](https://brokestudio.fr/rainbow/emulators)
+- [Official Rainbow mapper test ROMs](https://brokestudio.fr/rainbow/test-roms/)
+
+This is an unofficial fork. Rainbow uses VRC6 audio; the complete NES core also
+contains other mappers. See the release's distribution notes for inherited
+licenses. Reload the test ROM before CHR RAM after the destructive Window Split test.
+
 ## Features
  * Supports saves for most games
  * Savestates
