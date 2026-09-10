@@ -9,7 +9,9 @@
 //   - FPGA-RAM auto reader/writer ($415C-$415F)
 //   - CHR banking modes 0-4 ($4120/$4130-$414F) CHR-ROM/CHR-RAM/FPGA-RAM/CIRAM
 //   - Nametable bank + control ($4126-$412D): CIRAM/CHR-RAM/FPGA-RAM/CHR-ROM
-//   - Fill-mode ($4124-$4125), Attribute + Background extended modes (basic)
+//   - Fill-mode ($4124-$4125), Attribute + Background extended modes
+//     (MMC5-style ext latch; attr-ext wins over FPGA-NT on AT fetches;
+//      bg-ext 4K CHR addr is 22-bit-safe; sticky through BG pattern fetches)
 //   - Scanline IRQ ($4150-$4153) and CPU-cycle IRQ ($4157-$415B)
 //   - Mapper version ($4160), IRQ status ($4161), SaveStateBus + FPGA-RAM savestate
 // Deferred (explicitly):
@@ -115,6 +117,11 @@ reg [13:0] last_ppu_addr;
 reg [7:0]  ext_data;
 reg        override_tile;
 reg [7:0]  last_chr_dout;
+reg [9:0]  ext_tile_addr;   // NT tile offset for ext fetch when NT is FPGA-RAM
+reg        last_chr_a13;
+reg        last_chr_read;
+reg        is_sprite_fetch;
+reg [5:0]  ppu_tile_cnt;
 
 // -------------------------------------------------------------------------
 // 8KB FPGA-RAM (dual-port)
@@ -157,10 +164,22 @@ wire ppu_is_at = (chr_ain[13:12] == 2'b10) &&  (&chr_ain[9:6]);
 
 wire [1:0] chr_src = chr_mode_reg[7:6];
 
+// Ext-mode FPGA addressing (BrokeStudio mapper-doc + MMC5-style pipeline):
+// - CIRAM/CHR-* NT + ext: during NT/AT, read ext page at the tile offset.
+// - FPGA-RAM NT + ext: NT cycles must return the nametable byte, so latch the
+//   tile offset and fetch the ext byte from nt_ext_page during the AT cycles.
+// altsyncram address_reg_b => 1 clk latency; PPU holds NT/AT for 2 dots.
+wire       ppu_need_ext = nt_attr_ext | nt_bg_ext;
+wire       ppu_ext_at   = ppu_need_ext & ppu_is_at & (nt_src == 2'b10);
+wire       ppu_ext_nt   = ppu_need_ext & ppu_is_nt & (nt_src != 2'b10);
+
 wire [12:0] fpga_ppu_addr =
-	chr_ain[13] ? ((nt_src == 2'b10) ? {ntb[1:0], chr_ain[9:0]} :
-	               {nt_ext_page, chr_ain[9:0]}) :
-	              {1'b0, chr_ain[11:0]};
+	!chr_ain[13] ? {1'b0, chr_ain[11:0]} :
+	ppu_ext_at   ? {nt_ext_page, ext_tile_addr} :
+	ppu_ext_nt   ? {nt_ext_page, chr_ain[9:0]} :
+	(nt_src == 2'b10) ? {ntb[1:0], chr_ain[9:0]} :
+	ppu_need_ext ? {nt_ext_page, chr_ain[9:0]} :
+	               {ntb[1:0], chr_ain[9:0]};
 
 wire [12:0] ram_addrB = Savestate_MAPRAMactive ? Savestate_MAPRAMAddr :
                         prg_hit_auto ? fpga_auto_addr :
@@ -272,6 +291,8 @@ always @(posedge clk) begin
 		ppu_in_frame <= 1'b0; ppu_in_hblank <= 1'b0; ppu_scanline <= 8'h0; ppu_read_ctr <= 8'h0;
 		nt_same_ctr <= 2'h0; ppu_idle <= 2'h0; last_ppu_addr <= 14'h0;
 		ext_data <= 8'h0; override_tile <= 1'b0; last_chr_dout <= 8'h0;
+		ext_tile_addr <= 10'h0; last_chr_a13 <= 1'b0; last_chr_read <= 1'b0;
+		is_sprite_fetch <= 1'b0; ppu_tile_cnt <= 6'h0;
 	end else if (SaveStateBus_load) begin
 		prg_mode_reg <= SS_MAP1[7:0];
 		fpga_bank    <= SS_MAP1[8];
@@ -483,6 +504,8 @@ always @(posedge clk) begin
 							if (!ppu_in_frame) begin
 								ppu_in_frame <= 1'b1;
 								ppu_scanline <= 8'h0;
+								ppu_tile_cnt <= 6'd2;
+								is_sprite_fetch <= 1'b0;
 							end else
 								ppu_scanline <= ppu_scanline + 8'd1;
 							ppu_read_ctr <= 8'h0;
@@ -508,10 +531,43 @@ always @(posedge clk) begin
 					end
 				end
 
-				if (ppu_is_nt && (nt_attr_ext | nt_bg_ext))
+				// Attribute/Background Extended Mode latch (MMC5-style):
+				// Capture ext on NT when NT is not FPGA-RAM (addr = ext page).
+				// When NT is FPGA-RAM, capture ext on AT (addr switched to ext page).
+				// Keep override_tile sticky through AT + BG pattern; clear only on
+				// the next NT (re-evaluated) — sprite fetches gated by is_sprite_fetch.
+				if (ppu_is_nt) begin
+					ext_tile_addr <= chr_ain[9:0];
+					if (ppu_need_ext && (nt_src != 2'b10))
+						ext_data <= ram_qB;
+					override_tile <= nt_bg_ext;
+				end else if (ppu_is_at && ppu_need_ext && (nt_src == 2'b10)) begin
 					ext_data <= ram_qB;
-				override_tile <= ppu_is_nt & nt_bg_ext;
+				end
 			end
+
+			// MMC5-style BG vs sprite fetch tracking (for bg-ext CHR banking)
+			if (~last_chr_read & chr_read) begin
+				last_chr_a13 <= chr_ain[13];
+				if (ppu_in_frame) begin
+					if (last_chr_a13 & ~chr_ain[13]) begin
+						if (ppu_tile_cnt == 6'd41) begin
+							ppu_tile_cnt <= 6'd0;
+						end else
+							ppu_tile_cnt <= ppu_tile_cnt + 6'd1;
+					end
+					if (~last_chr_a13 & chr_ain[13]) begin
+						if (ppu_tile_cnt == 6'd34)
+							is_sprite_fetch <= 1'b1;
+						if (ppu_tile_cnt == 6'd0)
+							is_sprite_fetch <= 1'b0;
+					end
+				end
+			end
+			last_chr_read <= chr_read;
+
+			if (!ppu_in_frame)
+				is_sprite_fetch <= 1'b0;
 
 			if (chr_write) begin
 				if (chr_ain[13] && nt_src == 2'b10) begin
@@ -617,6 +673,9 @@ assign chr_allow = chr_allow_r;
 assign vram_ce = vram_ce_r;
 assign vram_a10 = vram_a10_r;
 
+// BG-ext applies only during background pattern fetches (not sprites).
+wire use_bg_ext = override_tile & nt_bg_ext & ~is_sprite_fetch & ppu_in_frame;
+
 always @* begin
 	has_chr_dout_r = 1'b0;
 	chr_dout_r = last_chr_dout;
@@ -626,7 +685,9 @@ always @* begin
 	vram_a10_r = ntb[0];
 
 	if (chr_ain[13]) begin
-		// Fill / attr-ext override
+		// Fill / attr-ext MUST take priority over FPGA-RAM NT source.
+		// Previous code set attr-ext then case(nt_src==10) overwrote it with
+		// the 16x16 AT byte — File Select MENU_EXT ($81) fell back to shared attrs.
 		if (nt_fill && ppu_is_nt) begin
 			has_chr_dout_r = 1'b1;
 			chr_dout_r = fill_tile;
@@ -636,36 +697,43 @@ always @* begin
 		end else if (nt_attr_ext && ppu_is_at) begin
 			has_chr_dout_r = 1'b1;
 			chr_dout_r = {4{ext_data[7:6]}};
+		end else begin
+			case (nt_src)
+				2'b00: begin
+					vram_ce_r = 1'b1;
+					vram_a10_r = ntb[0];
+					chr_allow_r = 1'b1;
+				end
+				2'b01: begin
+					chr_aout_r = {9'b11_1111_111, ntb[2:0], chr_ain[9:0]};
+					chr_allow_r = 1'b1;
+				end
+				2'b10: begin
+					has_chr_dout_r = 1'b1;
+					chr_dout_r = last_chr_dout;
+				end
+				default: begin
+					chr_aout_r = {2'b10, ntb, chr_ain[9:0]};
+				end
+			endcase
 		end
-
-		case (nt_src)
-			2'b00: begin
-				vram_ce_r = ~has_chr_dout_r;
-				vram_a10_r = ntb[0];
-				chr_allow_r = 1'b1;
-			end
-			2'b01: begin
-				chr_aout_r = {9'b11_1111_111, ntb[2:0], chr_ain[9:0]};
-				chr_allow_r = 1'b1;
-			end
-			2'b10: begin
-				has_chr_dout_r = 1'b1;
-				chr_dout_r = last_chr_dout;
-			end
-			default: begin
-				chr_aout_r = {2'b10, ntb, chr_ain[9:0]};
-			end
-		endcase
+		// CIRAM + mapper-supplied AT/NT: keep vram_ce low when overriding
+		if (has_chr_dout_r)
+			vram_ce_r = 1'b0;
 	end else begin
 		case (chr_src)
 			2'b00: begin
-				if (override_tile)
-					chr_aout_r = {2'b10, bg_ext_upper[3:0], ext_data[5:0], chr_ain[11:0]};
+				// 22-bit safe: {CHRROM, upper[1:0], ext[5:0], fine[11:0]}
+				// Old concat was 24-bit and truncated away the 2'b10 CHR-ROM tag
+				// → BG fetches hit the wrong SDRAM region (tile soup / font as BG).
+				if (use_bg_ext)
+					chr_aout_r = {2'b10, bg_ext_upper[1:0], ext_data[5:0], chr_ain[11:0]};
 				else
 					chr_aout_r = {2'b10, chr_lin};
 			end
 			2'b01: begin
-				if (override_tile)
+				// 22-bit: CHR-RAM tag + 6-bit 4K bank + 12-bit fine
+				if (use_bg_ext)
 					chr_aout_r = {4'b1111, ext_data[5:0], chr_ain[11:0]};
 				else
 					chr_aout_r = {9'b11_1111_111, chr_lin[12:0]};
