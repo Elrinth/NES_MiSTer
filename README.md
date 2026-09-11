@@ -12,7 +12,7 @@ graphics banking, scrolling/IRQ handling and extended sprite support.
 - [Rainbow-compatible Mesen2 and other emulators — Broke Studio](https://brokestudio.fr/rainbow/emulators)
 - [Rainbow mapper test ROMs — Broke Studio](https://brokestudio.fr/rainbow/test-roms/)
 
-Download the tested [mapper 682 RBF release](https://github.com/Elrinth/NES_MiSTer/releases/tag/mapper682-20260910).
+Download the tested [mapper 682 RBF release](https://github.com/Elrinth/NES_MiSTer/releases/tag/mapper682-20260911).
 The release includes checksums, matching source and license notices. See
 [build/install instructions](BUILDING_RAINBOW.md) and
 [distribution notes](DISTRIBUTION.md). Rainbow itself uses VRC6 audio;

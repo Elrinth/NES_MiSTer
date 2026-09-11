@@ -68,7 +68,7 @@ end
 
 `include "build_id.v"
 parameter CONF_STR = {
-	"NES;SS3E000000:200000,UART31250,MIDI;",
+	"NES_RAINBOW;SS3E000000:200000,UART31250,MIDI;",
 	"FS,NESFDSNSF;",
 	"H1F2,BIN,Load FDS BIOS;",
 	"-;",

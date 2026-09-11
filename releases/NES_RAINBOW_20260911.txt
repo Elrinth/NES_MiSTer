@@ -1,0 +1,22 @@
+NES_RAINBOW internal core name - 2026-09-11
+
+The core now identifies itself to MiSTer as NES_RAINBOW instead of NES.
+Only the first identifier in CONF_STR was changed. All status bits, menu
+options and mapper/PPU logic remain the same as the tested spritefix build.
+This is not a scrolling-glitch fix.
+
+Copy NES_RAINBOW_20260911.rbf into your MiSTer _Console folder and launch it.
+The internal name separates the configuration as NES_RAINBOW.CFG and changes
+the default games folder to games/NES_RAINBOW. Existing NES files are not
+moved or deleted. You can browse to your existing games/NES ROMs instead.
+Core-specific controller/configuration settings may need to be configured again.
+Back up existing saves and check the save location before continuing a game;
+name-based paths can differ from the standard NES core.
+
+Built with Quartus Prime Lite 17.0, Cyclone V, project NES, seed 6.
+The Quartus project/module names remain NES; the MiSTer runtime identifier
+and the distributed filename are NES_RAINBOW. No new physical MiSTer test
+is claimed for this rebuild. See the included timing report and checksum.
+
+Retain COPYING and THIRD_PARTY_NOTICES.txt with redistribution; inherited
+license details are documented in DISTRIBUTION.md.
